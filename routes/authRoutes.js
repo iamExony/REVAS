@@ -16,7 +16,7 @@ const router = express.Router();
 //Admin
 /**
  * @swagger
- * /admin/login:
+ * /api/admin/login:
  *   post:
  *     summary: Login an Admin
  *     tags: [Admin] 
@@ -42,7 +42,7 @@ const router = express.Router();
  *         description: Internal server error
  */
 
-router.post('/admin/login', loginAdmin);
+router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
