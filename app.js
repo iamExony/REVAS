@@ -5,6 +5,7 @@ const productRoutes = require('./routes/productRoutes');
 const swaggerSetup = require('./swagger/swagger');
 const helmet = require('helmet');
 const orderRoutes = require("./routes/orderRoutes");
+require('dotenv').config()
 /* const rateLimit = require('express-rate-limit'); */
 
 
