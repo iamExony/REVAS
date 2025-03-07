@@ -46,7 +46,7 @@ router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
- * /account-managers/register:
+ * /api/account-managers/register:
  *   post:
  *     summary: Register as Account Manager
  *     tags: [Account Managers] 
@@ -84,8 +84,8 @@ router.post('/api/admin/login', loginAdmin);
  *       500:
  *         description: Internal server error
  */
-/* router.post('/account-managers/register', registerAccountManager); */
-router.post('/account-managers/register', async (req, res) => {
+/* router.post('/api/account-managers/register', registerAccountManager); */
+router.post('/api/account-managers/register', async (req, res) => {
   try {
     const { role } = req.body;
     validateAccountManagerRole(role);
@@ -98,7 +98,7 @@ router.post('/account-managers/register', async (req, res) => {
 
 /**
  * @swagger
- * /account-managers/login:
+ * /api/account-managers/login:
  *   post:
  *     summary: Login an Account Manager
  *     tags: [Account Managers] 
@@ -123,16 +123,16 @@ router.post('/account-managers/register', async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.post('/account-managers/login', loginAccountManager);
+router.post('/api/account-managers/login', loginAccountManager);
 
 // Secure route example for account managers
-router.get('/account-managers/dashboard', authMiddleware, authenticateRole(['Account Manager Buyer', 'Account Manager Supplier']), (req, res) => {
+router.get('/api/account-managers/dashboard', authMiddleware, authenticateRole(['Account Manager Buyer', 'Account Manager Supplier']), (req, res) => {
   res.json({ message: 'Welcome to Account Manager Dashboard' });
 });
 
 /**
  * @swagger
- * /register:
+ * /api/register:
  *   post:
  *     summary: Register a new user
  *     tags: [Users] 
@@ -172,11 +172,11 @@ router.get('/account-managers/dashboard', authMiddleware, authenticateRole(['Acc
  *       500:
  *         description: Internal server error
  */
-router.post('/register', register);
+router.post('/api/register', register);
 
 /**
  * @swagger
- * /login:
+ * /api/login:
  *   post:
  *     summary: Login a user
  *     tags: [Users] 
@@ -201,16 +201,16 @@ router.post('/register', register);
  *       500:
  *         description: Internal server error
  */
-router.post('/login', login);
+router.post('/api/login', login);
 
 // Protected route example
-router.get('/profile', authMiddleware, (req, res) => {
+router.get('/api/profile', authMiddleware, (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
 });
 
 /**
  * @swagger
- * /forgot-password:
+ * /api/forgot-password:
  *   post:
  *     summary: Request a password reset link
  *     tags: [Users, Account Managers] 
@@ -259,11 +259,11 @@ router.get('/profile', authMiddleware, (req, res) => {
  *                   type: string
  *                   example: Internal server error
  */
-router.post('/forgot-password', forgotPassword);
+router.post('/api/forgot-password', forgotPassword);
 
 /**
  * @swagger
- * /reset-password/{token}:
+ * /api/reset-password/{token}:
  *   post:
  *     summary: Reset user password
  *     tags: [Users, Account Managers] 
@@ -322,6 +322,6 @@ router.post('/forgot-password', forgotPassword);
  *                   type: string
  *                   example: Internal server error
  */
-router.post('/reset-password/:token', resetPassword);
+router.post('/api/reset-password/:token', resetPassword);
 
 module.exports = router;

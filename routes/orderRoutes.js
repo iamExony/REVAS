@@ -50,7 +50,7 @@ const { authMiddleware, authenticateRole } = require('../middleware/authMiddlewa
 
 /**
  * @swagger
- * /create-order:
+ * /api/create-order:
  *   post:
  *     summary: Create a new order
  *     tags: [Orders]
@@ -66,12 +66,12 @@ const { authMiddleware, authenticateRole } = require('../middleware/authMiddlewa
  *       400:
  *         description: Bad request
  */
-router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.createOrder);
+router.post('/api/create-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.createOrder);
 
 
 /**
  * @swagger
- * /save-order:
+ * /api/save-order:
  *   post:
  *     summary: Save order as draft
  *     tags: [Orders]
@@ -87,11 +87,11 @@ router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'seller'
  *       400:
  *         description: Bad request
  */
-router.post('/save-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.saveOrderDraft);
+router.post('/api/save-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.saveOrderDraft);
 
 /**
  * @swagger
- * /orders/{id}:
+ * /api/orders/{id}:
  *   get:
  *     summary: Get an order by ID
  *     tags: [Orders]
@@ -107,11 +107,11 @@ router.post('/save-order', authMiddleware, authenticateRole(['buyer', 'seller'])
  *       404:
  *         description: Order not found
  */
-router.get('/orders/:id', orderController.getOrderById);
+router.get('/api/orders/:id', orderController.getOrderById);
 
 /**
  * @swagger
- * /orders:
+ * /api/orders:
  *   get:
  *     summary: Get all orders
  *     tags: [Orders]
@@ -119,10 +119,10 @@ router.get('/orders/:id', orderController.getOrderById);
  *       200:
  *         description: List of all orders
  */
-router.get('/orders', orderController.getAllOrders);
+router.get('/api/orders', orderController.getAllOrders);
 /**
  * @swagger
- * /saved-orders:
+ * /api/saved-orders:
  *   get:
  *     summary: Get saved orders
  *     tags: [Orders]
@@ -130,11 +130,11 @@ router.get('/orders', orderController.getAllOrders);
  *       200:
  *         description: List of all saved orders
  */
-router.get('/saved-orders', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.getAllSavedOrders);
+router.get('/api/saved-orders', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.getAllSavedOrders);
 
 /**
  * @swagger
- * /orders/{id}:
+ * /api/orders/{id}:
  *   put:
  *     summary: Update an order by ID
  *     tags: [Orders]
@@ -156,11 +156,11 @@ router.get('/saved-orders', authMiddleware, authenticateRole(['buyer', 'seller']
  *       404:
  *         description: Order not found
  */
-router.put('/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.updateOrder);
+router.put('/api/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.updateOrder);
 
 /**
  * @swagger
- * /orders/{id}:
+ * /api/orders/{id}:
  *   delete:
  *     summary: Delete an order by ID
  *     tags: [Orders]
@@ -176,6 +176,6 @@ router.put('/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']),
  *       404:
  *         description: Order not found
  */
-router.delete('/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.deleteOrder);
+router.delete('/api/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.deleteOrder);
 
 module.exports = router;
