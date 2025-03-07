@@ -11,7 +11,12 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000/api', 
+        url: "http://localhost:3000/api", // Your Render live URL
+        description: "Local server",
+      },
+      {
+        url: "https://revas.onrender.com", // Your Render live URL
+        description: "Live server",
       },
     ],
     components: {
