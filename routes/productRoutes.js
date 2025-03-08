@@ -37,7 +37,7 @@ const fileFilter = (req, file, cb) => {
  */
 /**
  * @swagger
- * /api/register-product:
+ * /register-product:
  *   post:
  *     summary: Register a product with an image
  *     tags: [Users]
@@ -73,11 +73,11 @@ const fileFilter = (req, file, cb) => {
  *       201:
  *         description: Product registered successfully
  */
-router.post('/api/register-product', authMiddleware, upload.single('image'), registerProduct);
+router.post('/register-product', authMiddleware, upload.single('image'), registerProduct);
 
 /**
  * @swagger
- * /api/products:
+ * /products:
  *   get:
  *     summary: Get products by company name (Buyers & Sellers only)
  *     tags: [Account Managers]
@@ -120,11 +120,11 @@ router.post('/api/register-product', authMiddleware, upload.single('image'), reg
  *       404:
  *         description: No products found
  */
-router.get('/api/products', authMiddleware, authenticateRole(['buyer', 'seller']), getProductsByCompany);
+router.get('/products', authMiddleware, authenticateRole(['buyer', 'seller']), getProductsByCompany);
 
 /**
  * @swagger
- * /api/create-user-product:
+ * /create-user-product:
  *   post:
  *     summary: Create a new user and register a product
  *     description: Only account managers (buyers or suppliers) can create a user and register a product.
@@ -182,7 +182,7 @@ router.get('/api/products', authMiddleware, authenticateRole(['buyer', 'seller']
  *       409:
  *         description: Conflict - User with this email already exists
  */
-router.post('/api/create-user-product', authMiddleware, authenticateRole(['buyer', 'supplier']), createUserAndProduct);
+router.post('/create-user-product', authMiddleware, authenticateRole(['buyer', 'supplier']), createUserAndProduct);
   
 
 module.exports = router;

@@ -46,7 +46,7 @@ router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
- * /api/account-managers/register:
+ * /account-managers/register:
  *   post:
  *     summary: Register as Account Manager
  *     tags: [Account Managers] 
@@ -85,7 +85,7 @@ router.post('/api/admin/login', loginAdmin);
  *         description: Internal server error
  */
 
-router.post('/api/account-managers/register', async (req, res) => {
+router.post('/account-managers/register', async (req, res) => {
   try {
     const { role } = req.body;
     validateAccountManagerRole(role);
@@ -176,7 +176,7 @@ router.post('/api/register', register);
 
 /**
  * @swagger
- * /api/login:
+ * /login:
  *   post:
  *     summary: Login a user
  *     tags: [Users] 
@@ -201,16 +201,16 @@ router.post('/api/register', register);
  *       500:
  *         description: Internal server error
  */
-router.post('/api/login', login);
+router.post('/login', login);
 
 // Protected route example
-router.get('/api/profile', authMiddleware, (req, res) => {
+router.get('/profile', authMiddleware, (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
 });
 
 /**
  * @swagger
- * /api/forgot-password:
+ * /forgot-password:
  *   post:
  *     summary: Request a password reset link
  *     tags: [Users, Account Managers] 
@@ -259,11 +259,11 @@ router.get('/api/profile', authMiddleware, (req, res) => {
  *                   type: string
  *                   example: Internal server error
  */
-router.post('/api/forgot-password', forgotPassword);
+router.post('/forgot-password', forgotPassword);
 
 /**
  * @swagger
- * /api/reset-password/{token}:
+ * /reset-password/{token}:
  *   post:
  *     summary: Reset user password
  *     tags: [Users, Account Managers] 
@@ -322,6 +322,6 @@ router.post('/api/forgot-password', forgotPassword);
  *                   type: string
  *                   example: Internal server error
  */
-router.post('/api/reset-password/:token', resetPassword);
+router.post('/reset-password/:token', resetPassword);
 
 module.exports = router;

@@ -15,7 +15,7 @@ const options = {
         description: "Local server",
       },
       {
-        url: "https://revas.onrender.com", // Your Render live URL
+        url: "https://revas.onrender.com/api", // Your Render live URL
         description: "Live server",
       },
     ],
