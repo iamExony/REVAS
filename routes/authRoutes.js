@@ -46,7 +46,7 @@ router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
- * /account-managers/register:
+ * /api/account-managers/register:
  *   post:
  *     summary: Register as Account Manager
  *     tags: [Account Managers] 
@@ -84,7 +84,7 @@ router.post('/api/admin/login', loginAdmin);
  *       500:
  *         description: Internal server error
  */
-/* router.post('/account-managers/register', registerAccountManager); */
+
 router.post('/api/account-managers/register', async (req, res) => {
   try {
     const { role } = req.body;
