@@ -85,7 +85,7 @@ router.post('/api/admin/login', loginAdmin);
  *         description: Internal server error
  */
 /* router.post('/account-managers/register', registerAccountManager); */
-router.post('/account-managers/register', async (req, res) => {
+router.post('/api/account-managers/register', async (req, res) => {
   try {
     const { role } = req.body;
     validateAccountManagerRole(role);
