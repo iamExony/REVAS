@@ -46,7 +46,7 @@ router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
- * /api/account-managers/register:
+ * /account-managers/register:
  *   post:
  *     summary: Register as Account Manager
  *     tags: [Account Managers] 
@@ -84,8 +84,8 @@ router.post('/api/admin/login', loginAdmin);
  *       500:
  *         description: Internal server error
  */
-/* router.post('/api/account-managers/register', registerAccountManager); */
-router.post('/api/account-managers/register', async (req, res) => {
+/* router.post('/account-managers/register', registerAccountManager); */
+router.post('/account-managers/register', async (req, res) => {
   try {
     const { role } = req.body;
     validateAccountManagerRole(role);
@@ -98,7 +98,7 @@ router.post('/api/account-managers/register', async (req, res) => {
 
 /**
  * @swagger
- * /api/account-managers/login:
+ * /account-managers/login:
  *   post:
  *     summary: Login an Account Manager
  *     tags: [Account Managers] 
@@ -123,7 +123,7 @@ router.post('/api/account-managers/register', async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.post('/api/account-managers/login', loginAccountManager);
+router.post('/account-managers/login', loginAccountManager);
 
 // Secure route example for account managers
 router.get('/api/account-managers/dashboard', authMiddleware, authenticateRole(['Account Manager Buyer', 'Account Manager Supplier']), (req, res) => {

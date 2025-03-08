@@ -138,10 +138,11 @@ const forgotPassword = async (req, res) => {
       from: process.env.EMAIL_USER,
       subject: 'Password Reset',
       text: `You are receiving this because you (or someone else) have requested a password reset for your account.\n\n
-             Please click on the following link, or paste it into your browser to complete the process:\n\n
+             Please copy this token and paste on your password recovery portal to complete the process:\n\n
+             ${resetToken}\n\n
+             OR copy this link and paste on your browser to complete the process:\n\n
              ${resetUrl}\n\n
              If you did not request this, please ignore this email and your password will remain unchanged.\n`,
-      html: `<b style="background-color:red; padding:12px;">Click me</b>`
     };
 
     await transporter.sendMail(mailOptions);
