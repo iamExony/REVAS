@@ -148,10 +148,6 @@ router.get('/products', authMiddleware, authenticateRole(['buyer', 'seller']), g
  *                 type: string
  *                 format: email
  *                 example: uchegodswill823@gmail.com
- *               password:
- *                 type: string
- *                 format: password
- *                 example: securepassword
  *               role:
  *                 type: string
  *                 enum: [buyer, supplier]

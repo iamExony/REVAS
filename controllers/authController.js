@@ -58,6 +58,7 @@ const register = async (req, res) => {
         email: user.email,
         role: user.role,
         clientType: user.clientType,
+        hasRegisteredProduct: user.hasRegisteredProduct,
       },
       token,
     });
@@ -94,6 +95,7 @@ const login = async (req, res) => {
           lastName: user.lastName,
           email: user.email,
           role: user.role,
+          hasRegisteredProduct: user.hasRegisteredProduct
         },
         token,
       });
