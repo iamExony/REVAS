@@ -54,12 +54,34 @@ const User = sequelize.define('User', {
     defaultValue: false,
     allowNull: false,
   },
+  managedClient: {
+    type: DataTypes.ARRAY(DataTypes.UUID),
+    allowNull: true,
+    defaultValue: []
+  }
 });
 
 // Associations
 User.associate = (models) => {
-  User.hasOne(models.Product, { foreignKey: 'userId', onDelete: 'CASCADE' });
-  User.hasMany(models.Order, { foreignKey: 'userId', onDelete: 'CASCADE' });
+  User.hasOne(models.Product, {
+     foreignKey: 'userId', 
+     onDelete: 'CASCADE' 
+    });
+  User.hasMany(models.Order, { 
+    as: 'buyerOrders',
+    foreignKey: 'buyerId', 
+  });
+  User.hasMany(models.Order, { 
+    as: 'supplierOrders',
+    foreignKey: 'supplierId', 
+  });
+  User.hasMany(models.Order, { 
+    as: 'managedBuyerOrders',
+    foreignKey: 'accountManagerId', 
+    scope: {
+      role: 'buyer'
+    }
+  });
 };
 
 module.exports = User;

@@ -43,7 +43,7 @@ const { authMiddleware, authenticateRole } = require('../middleware/authMiddlewa
  *         priceRange:
  *           type: integer
  *           example: 800
- *         status:
+ *         savedStatus:
  *           type: string
  *           example: "confirmed"
  */

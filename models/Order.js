@@ -19,7 +19,31 @@ const Order = sequelize.define('Order', {
   shippingCost: { type: DataTypes.INTEGER, allowNull: false },
   negotiatePrice: { type: DataTypes.BOOLEAN, allowNull: true },
   priceRange: { type: DataTypes.INTEGER, allowNull: true },
-  status: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending' },
+  savedStatus: { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending' },
+   status: { type: DataTypes.ENUM(
+    'not_matched',
+    'matched',
+    'document_phase',
+    'processing',
+    'completed'
+   ), 
+    defaultValue: "not_matched",
+    allowNull: false
+   }, 
+   docUrl: {type: DataTypes.STRING},
+
+    buyerId: {
+    type: DataTypes.UUID,
+    references: {model: 'Users', key: 'id'}
+   },
+   supplierId: {
+    type: DataTypes.UUID,
+    references: {model: 'Users', key: 'id'},
+   }, 
+   accountManagerId: {
+    type: DataTypes.UUID,
+    references: {model: 'Users', key: 'id'}
+   }, 
 
   userId: {  // Foreign key to User
     type: DataTypes.UUID,

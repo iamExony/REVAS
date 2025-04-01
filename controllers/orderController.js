@@ -16,11 +16,16 @@ exports.createOrder = async (req, res) => {
       if (!accountManager) {
         return res.status(404).json({ message: "Account manager not found" });
       }
+
+      const existingUser = await User.findOne({where: {email: req.body.email}})
+      if(!existingUser){
+        return res.status(400).json({error: "User does not exist"})
+      }
   
       // Create order
       const order = await Order.create({ 
         ...req.body, 
-        status: "confirmed", 
+        savedStatus: "confirmed", 
         userId: req.user.id 
       });
   
@@ -44,7 +49,7 @@ exports.saveOrderDraft = async (req, res) => {
       return res.status(403).json({ message: "Access denied: Only buyers and suppliers can save orders as drafts." });
     }
 
-    const order = await Order.create({ ...req.body, status: "draft", userId: req.user.id });
+    const order = await Order.create({ ...req.body, savedStatus: "draft", userId: req.user.id });
     res.status(201).json({ message: "Order saved as draft", order });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -57,7 +62,7 @@ exports.updateOrder = async (req, res) => {
     if (!["buyer", "supplier"].includes(req.user.role)) {
       return res.status(403).json({ message: "Access denied: Only buyers and suppliers can update orders." });
     }
-
+    
     const order = await Order.findByPk(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
@@ -65,7 +70,7 @@ exports.updateOrder = async (req, res) => {
     if (order.userId !== req.user.id) {
       return res.status(403).json({ message: "Access denied: You can only edit your own orders." });
     }
-    if (order.status !== "draft") {
+    if (order.savedStatus !== "draft") {
       return res.status(403).json({ message: "Only draft orders can be edited." });
     }
 
@@ -103,7 +108,7 @@ exports.getAllOrders = async (req, res) => {
   try {
     const orders = await Order.findAll({
       where: {
-        status: ["confirmed", "created"] // Only confirmed/created orders
+        savedStatus: ["confirmed", "created"] // Only confirmed/created orders
       }
     });
 
@@ -122,7 +127,7 @@ exports.getAllSavedOrders = async (req, res) => {
 
     const orders = await Order.findAll({
       where: {
-        status: "draft",
+        savedStatus: "draft",
         userId: req.user.id // Only show drafts belonging to the logged-in user
       }
     });
