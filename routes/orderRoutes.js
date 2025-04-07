@@ -38,7 +38,7 @@ const { authMiddleware, authenticateRole } = require('../middleware/authMiddlewa
  *       404:
  *         description: Order not found
  */
-router.patch('/api/orders/:id/status', 
+router.patch('/orders/:id/status', 
     authMiddleware, 
     authenticateRole(['buyer', 'supplier']),
     orderController.updateOrderStatus
@@ -64,7 +64,7 @@ router.patch('/api/orders/:id/status',
    *       403:
    *         description: Forbidden
    */
-  router.get('/api/orders/dashboard',
+  router.get('/orders/dashboard',
     authMiddleware,
     orderController.getDashboardOrders
   );
@@ -101,11 +101,11 @@ router.patch('/api/orders/:id/status',
    *       404:
    *         description: Order not found
    */
-  router.post('/api/orders/:id/generate-supplier-order',
+/*    router.post('/api/orders/:id/generate-supplier-order',
     authMiddleware,
     authenticateRole(['buyer', 'seller']),
     orderController.generateSupplierOrder
-  );
+  );  */
   
   /**
    * @swagger
@@ -145,7 +145,7 @@ router.patch('/api/orders/:id/status',
     authMiddleware,
     authenticateRole(['buyer', 'supplier', 'account_manager_buyer', 'account_manager_supplier']),
     orderController.initiateSigning
-  ); */
+  ); 
 /**
  * @swagger
  * components:
@@ -153,6 +153,9 @@ router.patch('/api/orders/:id/status',
  *     Order:
  *       type: object
  *       properties:
+ *         userId:
+ *           type: string
+ *           example: "2f8a9d74-47e4-4db4-ae99-12abc3ef4567"
  *         companyName:
  *           type: string
  *           example: "Revas Exchange"
@@ -209,7 +212,7 @@ router.patch('/api/orders/:id/status',
  *       400:
  *         description: Bad request
  */
-router.post('/api/create-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.createOrder);
+router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.createOrder);
 
 
 /**
@@ -230,7 +233,7 @@ router.post('/api/create-order', authMiddleware, authenticateRole(['buyer', 'sel
  *       400:
  *         description: Bad request
  */
-router.post('/api/save-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.saveOrderDraft);
+router.post('/save-order', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.saveOrderDraft);
 
 /**
  * @swagger
@@ -250,19 +253,8 @@ router.post('/api/save-order', authMiddleware, authenticateRole(['buyer', 'selle
  *       404:
  *         description: Order not found
  */
-router.get('/api/orders/:id', orderController.getOrderById);
+router.get('/orders/:id', orderController.getOrderById);
 
-/**
- * @swagger
- * /api/orders:
- *   get:
- *     summary: Get all orders
- *     tags: [Orders]
- *     responses:
- *       200:
- *         description: List of all orders
- */
-router.get('/api/orders', orderController.getAllOrders);
 /**
  * @swagger
  * /api/saved-orders:
@@ -273,7 +265,7 @@ router.get('/api/orders', orderController.getAllOrders);
  *       200:
  *         description: List of all saved orders
  */
-router.get('/api/saved-orders', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.getAllSavedOrders);
+router.get('/saved-orders', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.getAllSavedOrders);
 
 /**
  * @swagger
@@ -299,7 +291,7 @@ router.get('/api/saved-orders', authMiddleware, authenticateRole(['buyer', 'sell
  *       404:
  *         description: Order not found
  */
-router.put('/api/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.updateOrder);
+router.put('/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.updateOrder);
 
 /**
  * @swagger
@@ -319,6 +311,6 @@ router.put('/api/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller
  *       404:
  *         description: Order not found
  */
-router.delete('/api/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.deleteOrder);
+router.delete('/orders/:id', authMiddleware, authenticateRole(['buyer', 'seller']), orderController.deleteOrder);
 
 module.exports = router;

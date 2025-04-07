@@ -38,6 +38,10 @@ const Order = sequelize.define("Order", {
     defaultValue: "not_matched",
     allowNull: false
   },
+   documentType: {
+  type: DataTypes.ENUM("purchase_order", "sales_order", "supply_order"),
+  allowNull: true
+},
   
   // Document Management
   docUrl: { type: DataTypes.STRING },
@@ -89,7 +93,7 @@ Order.associate = (models) => {
   });
   
   Order.belongsTo(models.User, {
-    as: 'supplierUser',
+    as: 'supplier',
     foreignKey: 'supplierId'
   });
   

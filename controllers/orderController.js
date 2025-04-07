@@ -1,28 +1,23 @@
-const { Order, User, Notification} = require("../models");
-/* const Notification = require("../models/Notification"); */
+const { Order, Notification} = require("../models");
 
+/* const Notification = require("../models/Notification"); */
 
 exports.updateOrderStatus = async (req, res) => {
   try {
-    // Authorization
+    // Only account managers can update status
     if (!["buyer", "supplier"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
+      return res.status(403).json({ message: "Access denied: Only account managers can update status" });
     }
 
-    const order = await Order.findByPk(req.params.id, {
-      include: [
-        { association: 'orderBuyer' },
-        { association: 'orderSupplier' }
-      ]
-    });
+    const order = await Order.findByPk(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Validate state transition
+    // Validate status transition
     const validTransitions = {
-      not_matched: ['matched'],
-      matched: ['document_phase'],
-      document_phase: ['processing'],
-      processing: ['completed']
+      not_matched: ["matched"],
+      matched: ["document_phase"],
+      document_phase: ["processing"],
+      processing: ["completed"]
     };
 
     if (!validTransitions[order.status]?.includes(req.body.status)) {
@@ -34,13 +29,18 @@ exports.updateOrderStatus = async (req, res) => {
     const oldStatus = order.status;
     await order.update({ status: req.body.status });
 
-    // Enhanced notification
-    await Notifier.handleStatusChange(
-      order.id, 
-      oldStatus, 
-      req.body.status, 
-      req.user.id
-    );
+    // Notify buyer/supplier
+    const recipientId = req.user.role === "buyer" 
+      ? order.supplierId 
+      : order.buyerId;
+
+    await Notification.create({
+      oldStatus: oldStatus,
+      userId: recipientId,
+      orderId: order.id,
+      message: `Order status changed to ${req.body.status}`,
+      type: "status_change"
+    });
 
     res.json(order);
   } catch (error) {
@@ -49,53 +49,102 @@ exports.updateOrderStatus = async (req, res) => {
 };
 
 // ================== Document Generation ================== //
-exports.generateSupplierOrder = async (req, res) => {
+exports.generatePurchaseOrder = async (req, res) => {
   try {
-    // Authorization
-    if (!["buyer", "supplier"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied" });
+    // Only supplier account managers can generate purchase orders
+    if (req.user.role !== "supplier") {
+      return res.status(403).json({ message: "Access denied: Only supplier account managers can generate purchase orders" });
     }
 
-    const order = await Order.findByPk(req.params.id, {
-      include: [
-        { association: 'orderBuyer' },
-        { association: 'orderSupplier' }
-      ]
-    });
-    
-    // Validation
+    const order = await Order.findByPk(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.status !== 'matched') {
+    if (order.status !== "matched") {
       return res.status(400).json({ message: "Order must be in 'matched' status" });
     }
 
-    // 1. Generate document
-    const docUrl = await generatePDF(order); 
-    
-    // 2. Create Document record
-    const document = await Document.create({
-      type: 'supplier_order',
-      fileUrl: docUrl,
-      orderId: order.id,
-      generatedById: req.user.id
-    });
+    // Generate document (implement your PDF logic)
+    const docUrl = await generatePDF(order, "purchase_order");
 
-    // 3. Update order
+    // Update order
     await order.update({ 
-      status: 'document_phase',
-      docUrl
+      status: "document_phase",
+      docUrl,
+      documentType: "purchase_order",
+      documentGeneratedAt: new Date()
     });
 
-    // 4. Notify parties
-    await Notifier.handleDocumentGenerated(
-      order.id,
-      docUrl,
-      req.user.id
-    );
+    // Notify buyer and supplier
+    await Notification.bulkCreate([
+      {
+        userId: order.buyerId,
+        orderId: order.id,
+        message: "Purchase order generated - please sign",
+        type: "document_ready",
+        metadata: { docType: "purchase_order" }
+      },
+      {
+        userId: order.supplierId,
+        orderId: order.id,
+        message: "Purchase order generated - please sign",
+        type: "document_ready",
+        metadata: { docType: "purchase_order" }
+      }
+    ]);
 
     res.json({ 
-      message: "Document generated successfully",
-      document 
+      message: "Purchase order generated successfully",
+      docUrl 
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.generateSalesOrder = async (req, res) => {
+  try {
+    // Only buyer account managers can generate sales orders
+    if (req.user.role !== "buyer") {
+      return res.status(403).json({ message: "Access denied: Only buyer account managers can generate sales orders" });
+    }
+
+    const order = await Order.findByPk(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (order.status !== "matched") {
+      return res.status(400).json({ message: "Order must be in 'matched' status" });
+    }
+
+    // Generate document (implement your PDF logic)
+    const docUrl = await generatePDF(order, "sales_order");
+
+    // Update order
+    await order.update({ 
+      status: "document_phase",
+      docUrl,
+      documentType: "sales_order",
+      documentGeneratedAt: new Date()
+    });
+
+    // Notify buyer and supplier
+    await Notification.bulkCreate([
+      {
+        userId: order.buyerId,
+        orderId: order.id,
+        message: "Sales order generated - please sign",
+        type: "document_ready",
+        metadata: { docType: "sales_order" }
+      },
+      {
+        userId: order.supplierId,
+        orderId: order.id,
+        message: "Sales order generated - please sign",
+        type: "document_ready",
+        metadata: { docType: "sales_order" }
+      }
+    ]);
+
+    res.json({ 
+      message: "Sales order generated successfully",
+      docUrl 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -107,62 +156,155 @@ const generatePDF = async (order) => {
   // Implement your PDF generation logic here
   return `https://storage.example.com/orders/${order.id}.pdf`;
 };
-// Generate supplier order document
-exports.generateSupplierOrder = async (req, res) => {
+
+exports.createOrder = async (req, res) => {
   try {
-    // Only account managers can generate documents
+    // Only account managers can create orders
     if (!["buyer", "supplier"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied: Only account managers can generate documents" });
+      return res.status(403).json({ message: "Access denied: Only account managers can create orders" });
     }
 
-    const order = await Order.findByPk(req.params.id, {
-      include: [
-        { model: User, as: 'buyer' },
-        { model: User, as: 'supplier' }
-      ]
-    });
-
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.status !== 'matched') {
-      return res.status(400).json({ message: "Order must be in 'matched' status" });
+    // Validate required fields
+    const requiredFields = ["companyName", "product", "capacity", "pricePerTonne"];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    if (missingFields.length > 0) {
+      return res.status(400).json({ 
+        message: `Missing fields: ${missingFields.join(", ")}` 
+      });
     }
 
-    // Generate document (pseudo-code - implement based on your doc generator)
-    const docUrl = await generateOrderDocument(order);
-    
-    // Update order
-    await order.update({ 
-      status: 'document_phase',
-      docUrl,
-      documentGeneratedAt: new Date() 
+    // Create order
+    const order = await Order.create({
+      ...req.body,
+      createdById: req.user.id,
+      // Set buyerId/supplierId based on account manager type
+      ...(req.user.role === "buyer" 
+        ? { buyerId: req.body.userId, buyerAccountManagerId: req.user.id}  // Assign to a buyer user
+        : { supplierId: req.body.userId, supplierAccountManagerId: req.user.id  }), // Assign to a supplier user
+      savedStatus: "confirmed"
     });
 
-    // Create notifications
-    await Notification.bulkCreate([
-      {
-        userId: order.buyerId,
-        orderId: order.id,
-        message: 'Supplier order document generated - please sign',
-        type: 'document_ready'
-      },
-      {
-        userId: order.supplierId,
-        orderId: order.id,
-        message: 'Supplier order document generated - please sign',
-        type: 'document_ready'
-      }
-    ]);
-
-    res.status(200).json({ 
-      message: "Supplier order generated successfully",
-      docUrl 
+    res.status(201).json({ 
+      message: "Order created successfully",
+      order 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
-// Get orders for buyer/supplier dashboard
+
+// ================== GET ORDERS (DASHBOARD) ================== //
 exports.getDashboardOrders = async (req, res) => {
+  try {
+    let whereClause = {};
+
+    // 1. Regular Users (buyer/supplier): Only see THEIR orders
+    if (["Buyer", "Supplier"].includes(req.user.clientType)) {
+      whereClause = {
+        ...whereClause,
+        [req.user.clientType === "buyer" ? "buyerId" : "supplierId"]: req.user.id
+      };
+    } 
+    // 2. Account Managers: See orders they manage
+    else if (req.user.role === "buyer" || req.user.role === "supplier") {
+      whereClause.savedStatus= "confirmed" // Only confirmed/created orders
+      
+    } 
+    // 3. Unauthorized roles
+    else {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const orders = await Order.findAll({
+      where: whereClause,
+    /*   include: [
+        {
+          model: User,
+          as: "buyer", // Must match the alias in your Order model
+          attributes: ["id", "email"],
+        },
+        {
+          model: User,
+          as: "supplier",
+          attributes: ["id", "email"],
+        }
+      ], */
+      order: [["createdAt", "DESC"]]
+    });
+
+    console.log("where", whereClause)
+    console.log("Orders", orders)
+
+    res.status(200).json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ================== GET SINGLE ORDER ================== //
+exports.getOrderById = async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Authorization: Only involved users/account managers can view
+    const isInvolvedUser = 
+      order.buyerId === req.user.id || 
+      order.supplierId === req.user.id;
+    const isAccountManager = 
+      order.buyerAccountManagerId === req.user.id || 
+      order.supplierAccountManagerId === req.user.id;
+
+    if (!isInvolvedUser && !isAccountManager) {
+      return res.status(403).json({ message: "Access denied: Not authorized to view this order" });
+    }
+
+    res.status(200).json(order);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ================== UPDATE ORDER STATUS ================== //
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Authorization: Only account managers can update status
+    const isBuyerAccountManager = 
+      req.user.role === "buyer" && 
+      order.buyerAccountManagerId === req.user.id;
+    const isSupplierAccountManager = 
+      req.user.role === "supplier" && 
+      order.supplierAccountManagerId === req.user.id;
+
+    if (!isBuyerAccountManager && !isSupplierAccountManager) {
+      return res.status(403).json({ message: "Access denied: Only assigned account managers can update status" });
+    }
+
+    // Validate status transition (same as before)
+    const validTransitions = {
+      not_matched: ["matched"],
+      matched: ["document_phase"],
+      document_phase: ["processing"],
+      processing: ["completed"]
+    };
+
+    if (!validTransitions[order.status]?.includes(req.body.status)) {
+      return res.status(400).json({ 
+        message: `Invalid transition from ${order.status}` 
+      });
+    }
+
+    await order.update({ status: req.body.status });
+    res.status(200).json({ message: "Status updated", order });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+// Get orders for buyer/supplier dashboard
+/* exports.getDashboardOrders = async (req, res) => {
   try {
     let whereClause = { savedStatus: 'confirmed' };
     
@@ -197,57 +339,9 @@ exports.getDashboardOrders = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
-// Update order status (for account managers)
-/* exports.updateOrderStatus = async (req, res) => {
-  try {
-    // Only account managers can update status
-    if (!["buyer", "supplier"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Access denied: Only account managers can update order status" });
-    }
-
-    const order = await Order.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    // Validate status transition
-    const validTransitions = {
-      not_matched: ['matched'],
-      matched: ['document_phase'],
-      document_phase: ['processing'],
-      processing: ['completed']
-    };
-
-    if (!validTransitions[order.status]?.includes(req.body.status)) {
-      return res.status(400).json({ 
-        message: `Invalid status transition from ${order.status} to ${req.body.status}` 
-      });
-    }
-
-    // Update status
-    await order.update({ status: req.body.status });
-
-    // Create notification for the other party
-    const notificationRecipient = order.buyerId === req.user.id ? 
-      order.supplierId : order.buyerId;
-
-    await Notification.create({
-      userId: notificationRecipient,
-      orderId: order.id,
-      message: `Order status changed to ${req.body.status}`,
-      type: 'status_change'
-    });
-
-    res.status(200).json({ 
-      message: "Order status updated successfully", 
-      order 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 }; */
-
 // ✅ Create Order (Only buyers & suppliers)
-exports.createOrder = async (req, res) => {
+/* exports.createOrder = async (req, res) => {
     try {
       if (!["buyer", "supplier"].includes(req.user.role)) {
         return res.status(403).json({ message: "Access denied: Only buyers and suppliers can create orders." });
@@ -297,7 +391,7 @@ exports.createOrder = async (req, res) => {
       }
       res.status(500).json({ error: error.message });
     }
-  };
+  }; */
 
 // ✅ Save Order as Draft (Only buyers & suppliers)
 exports.saveOrderDraft = async (req, res) => {
@@ -355,21 +449,6 @@ exports.deleteOrder = async (req, res) => {
 
     await order.destroy();
     res.status(200).json({ message: "Order deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// ✅ Get All Confirmed/Created Orders (Accessible to all users)
-exports.getAllOrders = async (req, res) => {
-  try {
-    const orders = await Order.findAll({
-      where: {
-        savedStatus: ["confirmed", "created"] // Only confirmed/created orders
-      }
-    });
-
-    res.status(200).json(orders);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
