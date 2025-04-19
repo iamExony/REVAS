@@ -1,10 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const productRoutes = require('./routes/productRoutes');
+const pdfTestRouter = require('./routes/pdfTestRouter')
 const swaggerSetup = require('./swagger/swagger');
 const helmet = require('helmet');
 const orderRoutes = require("./routes/orderRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const documentRoutes = require("./routes/documentRoutes");
 require('dotenv').config()
 /* const rateLimit = require('express-rate-limit'); */
 
@@ -28,9 +32,12 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api', authRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api', productRoutes); 
 app.use("/api", orderRoutes);
-
+app.use("/api", documentRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/pdftest', pdfTestRouter);
 swaggerSetup(app);
 
 app.use((req, res, next) => {

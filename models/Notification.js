@@ -7,6 +7,16 @@ const Notification = sequelize.define('Notification', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
+  userId: {  // 👈 Add this field (must match your DB column name)
+    type: DataTypes.UUID,
+    references: { model: 'Users', key: 'id' },
+    allowNull: false  // or true if optional
+  },
+  orderId: {  // 👈 Also add this for consistency
+    type: DataTypes.UUID,
+    references: { model: 'Orders', key: 'id' },
+    allowNull: true
+  },
   message: {
     type: DataTypes.TEXT,
     allowNull: false

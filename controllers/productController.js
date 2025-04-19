@@ -5,12 +5,32 @@ const crypto = require("crypto");
 const { sendEmail } = require("../utils/emailService");
 const cloudinary = require("../config/cloudinary"); // Cloudinary configuration
 
-// Register Product
 const registerProduct = async (req, res) => {
-  const { companyName, product, capacity, price, location } = req.body;
+  let { companyName, product, capacity, price, location } = req.body;
   const userId = req.user.id; // Get authenticated user ID
 
   try {
+    // Parse product if it's a string
+    if (typeof product === "string") {
+      try {
+        product = JSON.parse(product);
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid product array format" });
+      }
+    }
+    // Validate product is an array
+    if (!Array.isArray(product)) {
+      return res
+        .status(400)
+        .json({ error: "Product must be an array of items" });
+    }
+
+    if (product.some((item) => typeof item !== "string")) {
+      return res
+        .status(400)
+        .json({ error: "All product items must be strings" });
+    }
+
     const user = await User.findByPk(userId);
     if (user.hasRegisteredProduct) {
       return res.status(400).json({ error: "Product already registered" });
@@ -18,27 +38,26 @@ const registerProduct = async (req, res) => {
 
     let imageUrl = null;
     if (req.file) {
-      // Upload to Cloudinary
       const uploadResult = await cloudinary.uploader.upload(req.file.path);
-      imageUrl = uploadResult.secure_url; // Get Cloudinary URL
+      imageUrl = uploadResult.secure_url;
     } else {
       return res.status(400).json({ message: "Image upload is required" });
     }
 
-    // Create the product
+    // Create the product with items array
     const newProduct = await Product.create({
       companyName,
       product,
       capacity,
       price,
       location,
-      imageUrl, // Ensure it matches your database column
+      imageUrl,
       userId,
     });
 
     user.hasRegisteredProduct = true;
     await user.save();
-
+    
     res.status(201).json({
       message: "Product registered successfully",
       product: newProduct,
@@ -48,7 +67,6 @@ const registerProduct = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
-
 
 // Get Products by Company
 const getProductsByCompany = async (req, res) => {
@@ -75,7 +93,7 @@ const getProductsByCompany = async (req, res) => {
 // Create User and Product
 const createUserAndProduct = async (req, res) => {
   try {
-    const {
+    let {
       firstName,
       lastName,
       email,
@@ -160,7 +178,7 @@ const createUserAndProduct = async (req, res) => {
       message:
         "User created and product registered successfully. Login details sent to email.",
       user: { firstName, lastName, email, role },
-      product: { companyName, product, capacity, price, location, imageUrl },
+      product: newProduct,
     });
   } catch (error) {
     console.error("Error in createUserAndProduct:", error);
@@ -170,8 +188,90 @@ const createUserAndProduct = async (req, res) => {
   }
 };
 
+// Get all products
+const getAllProducts = async (req, res) => {
+  try {
+    const products = await Product.findAll();
+    res.status(200).json(products);
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    res.status(500).json({ error: "Failed to fetch products" });
+  }
+};
+
+// Get product by ID
+const getProductById = async (req, res) => {
+  try {
+    const product = await Product.findByPk(req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+    res.status(200).json(product);
+  } catch (error) {
+    console.error("Error fetching product:", error);
+    res.status(500).json({ error: "Failed to fetch product" });
+  }
+};
+
+// Update product
+const updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let updates = req.body;
+
+    // Handle product array if provided
+    if (updates.product && typeof updates.product === 'string') {
+      try {
+        updates.product = JSON.parse(updates.product);
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid product array format" });
+      }
+    }
+
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    // Handle image update if provided
+    if (req.file) {
+      const uploadResult = await cloudinary.uploader.upload(req.file.path);
+      updates.imageUrl = uploadResult.secure_url;
+    }
+
+    await product.update(updates);
+    res.status(200).json({
+      message: "Product updated successfully",
+      product
+    });
+  } catch (error) {
+    console.error("Error updating product:", error);
+    res.status(500).json({ error: "Failed to update product" });
+  }
+};
+
+// Delete product
+const deleteProduct = async (req, res) => {
+  try {
+    const product = await Product.findByPk(req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    await product.destroy();
+    res.status(200).json({ message: "Product deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting product:", error);
+    res.status(500).json({ error: "Failed to delete product" });
+  }
+};
+
 module.exports = {
   registerProduct,
   getProductsByCompany,
   createUserAndProduct,
+  getAllProducts,
+  getProductById,
+  updateProduct,
+  deleteProduct
 };

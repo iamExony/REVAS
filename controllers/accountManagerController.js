@@ -30,13 +30,18 @@ exports.registerAccountManager = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+      // Generate token
+   
+
     // Create user
     const user = await User.create({ firstName, lastName, email, password: hashedPassword, role });
+
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' }); 
 
     // Remove password before sending response
     const userResponse = { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role };
 
-    res.status(201).json({ message: 'Account Manager created successfully', user: userResponse });
+    res.status(201).json({ message: 'Account Manager created successfully', user: userResponse, token: token });
   } catch (error) {
     res.status(500).json({ error: 'An error occurred while registering the account manager' });
   }

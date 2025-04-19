@@ -2,7 +2,6 @@ const express = require('express');
 const { register, login, forgotPassword, resetPassword } = require('../controllers/authController');
 const { registerAccountManager, loginAccountManager, validateAccountManagerRole} = require('../controllers/accountManagerController');
 const { authMiddleware, authenticateRole } = require('../middleware/authMiddleware');
-const { loginAdmin } = require('../controllers/adminController');
 
 
 const router = express.Router();
@@ -13,36 +12,6 @@ const router = express.Router();
  *     description: Authentication endpoints
  */
 
-//Admin
-/**
- * @swagger
- * /api/admin/login:
- *   post:
- *     summary: Login an Admin
- *     tags: [Admin] 
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               email:
- *                 type: string
- *                 example: hello@adminrevas.com
- *               password:
- *                 type: string
- *                 example: "@Adminrevas1"
- *     responses:
- *       200:
- *         description: Login successful
- *       401:
- *         description: Invalid credentials
- *       500:
- *         description: Internal server error
- */
-
-router.post('/api/admin/login', loginAdmin);
 
 /**
  * @swagger
@@ -125,10 +94,6 @@ router.post('/account-managers/register', async (req, res) => {
  */
 router.post('/account-managers/login', loginAccountManager);
 
-// Secure route example for account managers
-router.get('/api/account-managers/dashboard', authMiddleware, authenticateRole(['Account Manager Buyer', 'Account Manager Supplier']), (req, res) => {
-  res.json({ message: 'Welcome to Account Manager Dashboard' });
-});
 
 /**
  * @swagger

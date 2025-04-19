@@ -9,13 +9,14 @@ const Order = sequelize.define("Order", {
     allowNull: false
   },
   // Order Details
-  companyName: { type: DataTypes.STRING, allowNull: false },
-  email: { type: DataTypes.STRING, allowNull: false },
+  buyerName: { type: DataTypes.STRING, allowNull: false },
   location: { type: DataTypes.STRING, allowNull: false },
   product: { type: DataTypes.STRING, allowNull: false },
   capacity: { type: DataTypes.INTEGER, allowNull: false },
   pricePerTonne: { type: DataTypes.INTEGER, allowNull: false },
-  supplierName: { type: DataTypes.STRING, allowNull: true },
+  paymentTerms: { type: DataTypes.INTEGER, allowNull: false },
+  shippingType: { type: DataTypes.STRING, allowNull: false },
+  supplierName: { type: DataTypes.STRING, allowNull: false },
   supplierPrice: { type: DataTypes.INTEGER, allowNull: false },
   shippingCost: { type: DataTypes.INTEGER, allowNull: false },
   negotiatePrice: { type: DataTypes.BOOLEAN, allowNull: true },
@@ -64,6 +65,10 @@ const Order = sequelize.define("Order", {
   buyerId: {
     type: DataTypes.UUID,
     references: { model: "Users", key: "id" }
+  },
+  invoiceNumber: {
+    type: DataTypes.STRING,
+    allowNull: true // Change to false if required
   },
   supplierId: {
     type: DataTypes.UUID,

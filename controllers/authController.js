@@ -22,11 +22,11 @@ const register = async (req, res) => {
     }
 
     // Validate clientType
-    if (role !== 'Account Manager' && !clientType) {
+    if ((role !== 'buyer' || role !=="supplier") && !clientType) {
       return res.status(400).json({ error: 'Client type is required for users' });
     }
 
-    if (role === 'Account Manager' && clientType) {
+    if ((role === 'buyer' || role ==="supplier") && clientType) {
       return res.status(400).json({ error: 'Account Managers should not have a client type' });
     }
 
@@ -40,7 +40,7 @@ const register = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      clientType: role === 'Account Manager' ? null : clientType, // Allow null for account managers
+      clientType: (role === 'buyer' || role ==="supplier") ? null : clientType, // Allow null for account managers
     });
 
     // Generate a JWT token
@@ -55,6 +55,7 @@ const register = async (req, res) => {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
+        companyName: user.companyName,
         email: user.email,
         role: user.role,
         clientType: user.clientType,
@@ -95,6 +96,7 @@ const login = async (req, res) => {
           lastName: user.lastName,
           email: user.email,
           role: user.role,
+          clientType: user.clientType,
           hasRegisteredProduct: user.hasRegisteredProduct
         },
         token,
