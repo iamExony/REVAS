@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/notificationController');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 /**
  * @swagger
@@ -71,28 +72,6 @@ router.get('/', notificationController.getUserNotifications);
 
 /**
  * @swagger
- * /notifications:
- *   post:
- *     summary: Create a new notification (Admin/Testing)
- *     tags: [Notifications]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/CreateNotification'
- *     responses:
- *       201:
- *         description: Notification created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Notification'
- */
-router.post('/', notificationController.createNotification);
-
-/**
- * @swagger
  * /notifications/{id}/mark-read:
  *   patch:
  *     summary: Mark a notification as read
@@ -118,7 +97,7 @@ router.post('/', notificationController.createNotification);
  *                 message:
  *                   type: string
  */
-router.patch('/:id/mark-read', notificationController.markAsRead);
+router.patch('/:id/mark-read', authMiddleware, notificationController.markAsRead);
 
 /**
  * @swagger
@@ -151,7 +130,7 @@ router.patch('/:id/mark-read', notificationController.markAsRead);
  *                 message:
  *                   type: string
  */
-router.patch('/mark-all-read', notificationController.markAllAsRead);
+router.patch('/mark-all-read', authMiddleware, notificationController.markAllAsRead);
 
 /**
  * @swagger
@@ -180,7 +159,7 @@ router.patch('/mark-all-read', notificationController.markAllAsRead);
  *                 message:
  *                   type: string
  */
-router.delete('/:id', notificationController.deleteNotification);
+router.delete('/:id', authMiddleware, notificationController.deleteNotification);
 
 // Swagger components (reusable schemas)
 /**

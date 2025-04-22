@@ -141,7 +141,7 @@ exports.deleteNotification = async (req, res) => {
  * @route POST /notifications
  * @description Create a new notification (for testing or admin use)
  */
-exports.createNotification = async (req, res) => {
+/* exports.createNotification = async (req, res) => {
   try {
     const { userId, message, type, triggeredById, metadata } = req.body;
 
@@ -157,4 +157,4 @@ exports.createNotification = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
-};
+}; */
