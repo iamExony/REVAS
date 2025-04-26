@@ -29,7 +29,9 @@ const Notification = sequelize.define('Notification', {
       'signature_requested', // When buyer/supplier needs to sign
       'signature_completed', // When counterparty completes signing
       'order_processing',    // When status moves to processing
-      'order_completed'      // Final completion
+      'order_completed',      // Final completion
+      'submission_declined',
+      'submission_expired',
     ),
     allowNull: false
   },

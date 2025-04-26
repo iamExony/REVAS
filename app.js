@@ -10,6 +10,8 @@ const orderRoutes = require("./routes/orderRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 require('dotenv').config()
+
+
 /* const rateLimit = require('express-rate-limit'); */
 
 
@@ -29,16 +31,18 @@ app.use(cors());
   origin: 'https://yourfrontend.com', // Only allow your frontend
   credentials: true
 })); */
-app.use(express.json());
+
+app.use(express.json()); 
 
 app.use('/api', authRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api', adminRoutes);
 app.use('/api', productRoutes); 
 app.use("/api", orderRoutes);
 app.use("/api", documentRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/pdftest', pdfTestRouter);
 swaggerSetup(app);
+
 
 app.use((req, res, next) => {
     console.log(`Incoming request: ${req.method} ${req.url}`);

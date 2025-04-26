@@ -1,13 +1,14 @@
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 const { v4: uuidv4 } = require("uuid");
 const { Order, Document, Notification, User } = require("../models");
-const docuseal = require("@docuseal/api");
+const { default: docuseal } = require("@docuseal/api"); // Note the .default
 const cloudinary = require("cloudinary").v2;
 const path = require("path");
 const fs = require("fs");
 const dotenv = require("dotenv");
 const logoPath = path.join(__dirname, "../assets/revas-logo.png");
 const { generateInvoiceNumber } = require("../utils/invoiceGenerator");
+const crypto = require("crypto");
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ cloudinary.config({
 // Initialize DocuSeal client
 docuseal.configure({
   apiKey: process.env.DOCUSEAL_API_KEY,
-  baseUrl: process.env.DOCUSEAL_BASE_URL || "https://api.docuseal.com",
+  baseUrl: process.env.DOCUSEAL_BASE_URL || "http://localhost:3000",
 });
 
 function drawWrappedText(page, text, x, y, maxWidth, lineHeight, options) {
@@ -49,10 +50,27 @@ function drawWrappedText(page, text, x, y, maxWidth, lineHeight, options) {
 }
 
 class DocumentController {
+  static verifyWebhookSignature(payload, receivedSignature, secret) {
+    const hmac = crypto.createHmac("sha256", secret);
+    hmac.update(payload);
+    const expectedSignature = hmac.digest("hex");
+
+    console.log("Signature Verification:", {
+      received: receivedSignature,
+      expected: expectedSignature,
+      match:
+        receivedSignature.toLowerCase() === expectedSignature.toLowerCase(),
+    });
+
+    return crypto.timingSafeEqual(
+      Buffer.from(expectedSignature, "utf8"),
+      Buffer.from(receivedSignature, "utf8")
+    );
+  }
   /**
    * Generate sales order PDF
    */
-  static async generateSalesOrder(req, res) {
+  static async generateOrderDocument(req, res) {
     try {
       const { id } = req.params;
       const { user } = req;
@@ -89,17 +107,27 @@ class DocumentController {
         pdfBuffer,
         filename
       );
-
+      const documentRecord = await Document.create({
+        orderId: id,
+        type: docType,
+        fileUrl: docUrl,
+        status: "pending_signatures",
+        generatedById: user.id,
+      });
       await order.update({
         invoiceNumber,
         status: "document_phase",
         docUrl,
         documentType: docType,
         documentGeneratedAt: new Date(),
+        documentId: documentRecord.id,
       });
 
       // Notifications
-      const notificationMessage = `${docType.replace("_"," ")} generated - please sign`;
+      const notificationMessage = `${docType.replace(
+        "_",
+        " "
+      )} generated - please sign`;
       await Notification.bulkCreate([
         {
           userId: order.buyerId,
@@ -643,7 +671,7 @@ class DocumentController {
   }
 
   /**
-   * Upload to Firebase Storage
+   * Upload to Cloudinary Storage
    */
   static async uploadToStorage(buffer, filename) {
     return new Promise((resolve, reject) => {
@@ -697,8 +725,7 @@ class DocumentController {
       const filename = `${docType}_${orderId}_${uuidv4()}.pdf`;
       const fileUrl = await this.uploadToStorage(pdfBuffer, filename);
 
-      const submission = await docuseal.submissions.create({
-        template_id: null,
+      const submission = await docuseal.createSubmission({
         document: { file: pdfBuffer, name: filename },
         signers: [
           {
@@ -708,34 +735,20 @@ class DocumentController {
             fields: [
               {
                 type: "signature",
-                page: 0,
-                x: 100,
+                page: 1, // Match your PDF page numbers
+                x: 50,
                 y: 200,
                 width: 120,
                 height: 50,
               },
             ],
           },
-          {
-            email: order.supplierEmail,
-            name: order.supplierName,
-            role: "supplier",
-            fields: [
-              {
-                type: "signature",
-                page: 0,
-                x: 100,
-                y: 100,
-                width: 120,
-                height: 50,
-              },
-            ],
-          },
+          // Similar for supplier
         ],
-        metadata: { orderId, documentType: docType },
-        send_email: true,
+        metadata: { orderId, docType },
+        send_email: false, // Since you want embedded signing
         redirect_url: `${process.env.FRONTEND_URL}/orders/${orderId}`,
-        expires_in: 7,
+        embedded: true, // ← Critical for embedded signing!
       });
 
       const document = await Document.create({
@@ -783,9 +796,19 @@ class DocumentController {
         fileUrl,
       });
     } catch (error) {
-      console.error("Signing initiation error:", error);
+      console.error("Signing failed:", {
+        error: error.response?.data || error.message,
+      });
+
+      await Notification.create({
+        type: "signature_failed",
+        message: `Failed to initiate ${docType} signing`,
+        orderId,
+        userId: req.user.id,
+      });
+
       return res.status(500).json({
-        error: "Failed to initiate signing",
+        error: "Signing initiation failed",
         details: error.message,
       });
     }
@@ -793,47 +816,121 @@ class DocumentController {
 
   /**
    * Handle webhook events
-   */
+   */ // Add to top of handleWebhook
   static async handleWebhook(req, res) {
     try {
-      if (!req.is("application/json")) {
-        return res.status(400).send("Invalid content type");
+      const signature = req.headers["docuseal-signature"];
+      const secret = process.env.DOCUSEAL_WEBHOOK_SECRET;
+
+      // Call it correctly using the class name
+      if (
+        !DocumentController.verifyWebhookSignature(
+          JSON.stringify(req.body),
+          signature,
+          secret
+        )
+      ) {
+        return res.status(401).send("Invalid signature");
       }
 
-      if (process.env.DOCUSEAL_WEBHOOK_SECRET) {
-        const signature = req.headers["docuseal-signature"];
-        if (
-          !signature ||
-          !docuseal.webhooks.verify(
-            req.body,
-            signature,
-            process.env.DOCUSEAL_WEBHOOK_SECRET
-          )
-        ) {
-          return res.status(401).send("Invalid signature");
-        }
-      }
-
-      const event = req.body;
-      switch (event.event_type) {
+      // 4. Process verified webhook
+      console.log("Processing:", req.body.event_type);
+      switch (req.body.event_type) {
         case "submission_completed":
-          await this.handleSubmissionCompleted(event);
+          await this.handleSubmissionCompleted(req.body);
           break;
         case "submission_viewed":
-          await this.handleSubmissionViewed(event);
+          await this.handleSubmissionViewed(req.body);
           break;
         case "submission_opened":
-          await this.handleSubmissionOpened(event);
+          await this.handleSubmissionOpened(req.body);
           break;
+        case "test": // Add explicit test handler
+          console.log("Test webhook received - verification successful");
+          break;
+        case "submission_declined":
+          await this.handleSubmissionDeclined(req.body);
+          break;
+        case "submission_expired":
+          await this.handleSubmissionExpired(req.body);
+          break;
+        default:
+          console.warn("Unhandled event type:", req.body.event_type);
       }
 
-      res.status(200).send("Webhook processed");
+      res.status(200).send("OK");
     } catch (error) {
-      console.error("Webhook error:", error);
+      console.error("Webhook processing error:", error);
       res.status(500).send("Error processing webhook");
     }
   }
+  static async handleSubmissionDeclined(event) {
+    const { submission } = event.data;
+    await Document.update(
+      { status: "declined" },
+      { where: { docuSealId: submission.id } }
+    );
+    await Notification.bulkCreate([
+      {
+        id: uuidv4(),
+        type: "submission_declined",
+        message: `Submission has been declined`,
+        orderId: document.orderId,
+        userId: document.generatedById,
+        metadata: { documentUrl: signedUrl },
+      },
+      {
+        id: uuidv4(),
+        type: "submission_declined",
+        message: `Submission has been declined`,
+        orderId: document.orderId,
+        userId: order.buyerUser.id,
+        metadata: { documentUrl: signedUrl },
+      },
+      {
+        id: uuidv4(),
+        type: "submission_declined",
+        message: `Submission has been declined`,
+        orderId: document.orderId,
+        userId: order.supplierUser.id,
+        metadata: { documentUrl: signedUrl },
+      },
+    ]);
+  }
 
+  static async handleSubmissionExpired(event) {
+    const { submission } = event.data;
+    await Document.update(
+      { status: "expired" },
+      { where: { docuSealId: submission.id } }
+    );
+    await Notification.bulkCreate([
+      {
+        id: uuidv4(),
+        type: "submission_expired",
+        message: `Submission has been expired`,
+        orderId: document.orderId,
+        userId: document.generatedById,
+        metadata: { documentUrl: signedUrl },
+      },
+      {
+        id: uuidv4(),
+        type: "submission_expired",
+        message: `Submission has been expired`,
+        orderId: document.orderId,
+        userId: order.buyerUser.id,
+        metadata: { documentUrl: signedUrl },
+      },
+      {
+        id: uuidv4(),
+        type: "submission_expired",
+        message: `Submission has been expired`,
+        orderId: document.orderId,
+        userId: order.supplierUser.id,
+        metadata: { documentUrl: signedUrl },
+      },
+    ]);
+  }
   static async handleSubmissionCompleted(event) {
     try {
       const { submission } = event.data;
@@ -929,7 +1026,27 @@ class DocumentController {
       console.error("Submission opened error:", error);
     }
   }
+  static async getSigningUrl(req, res) {
+    try {
+      const document = await Document.findByPk(req.params.id);
+      if (!document)
+        return res.status(404).json({ error: "Document not found" });
 
+      if (document.status !== "pending_signatures") {
+        return res
+          .status(400)
+          .json({ error: "Document not ready for signing" });
+      }
+
+      res.json({
+        signingUrl: document.signingUrl,
+        embed: true, // Indicate to frontend to use embedded mode
+      });
+    } catch (error) {
+      console.error("Error getting signing URL:", error);
+      res.status(500).json({ error: "Failed to get signing URL" });
+    }
+  }
   /**
    * Get document status
    */

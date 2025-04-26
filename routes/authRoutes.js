@@ -97,7 +97,7 @@ router.post('/account-managers/login', loginAccountManager);
 
 /**
  * @swagger
- * /api/register:
+ * /register:
  *   post:
  *     summary: Register a new user
  *     tags: [Users] 
@@ -137,7 +137,7 @@ router.post('/account-managers/login', loginAccountManager);
  *       500:
  *         description: Internal server error
  */
-router.post('/api/register', register);
+router.post('/register', register);
 
 /**
  * @swagger

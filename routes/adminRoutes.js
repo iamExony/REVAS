@@ -1,5 +1,5 @@
 const express = require('express');
-const { loginAdmin } = require('../controllers/adminController');
+const  {loginAdmin}  = require('../controllers/adminController');
 
 
 const router = express.Router();
@@ -39,7 +39,7 @@ const router = express.Router();
  *         description: Internal server error
  */
 
-router.post('/', loginAdmin);
+router.post('/admin', loginAdmin);
 
 
 module.exports = router;

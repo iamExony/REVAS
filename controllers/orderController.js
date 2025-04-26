@@ -186,11 +186,11 @@ exports.getDashboardOrders = async (req, res) => {
           as: 'supplierAccountManager',
           attributes: ['id', 'firstName', 'lastName', 'email', 'role']
         },
-        {
-          model: User,
+   /*    {
+            model: User,
           as: 'creator',
           attributes: ['id', 'firstName', 'lastName', 'email']
-        }
+        }  */
       ],
       order: [
         ['status', 'ASC'],  // Orders by status progression
@@ -321,11 +321,11 @@ exports.updateOrder = async (req, res) => {
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     // Ensure only the creator can edit & order status is 'draft'
-    if (order.userId !== req.user.id) {
+/*     if (order.userId !== req.user.id) {
       return res
         .status(403)
         .json({ message: "Access denied: You can only edit your own orders." });
-    }
+    } */
     if (order.savedStatus !== "draft") {
       return res
         .status(403)
@@ -385,7 +385,7 @@ exports.getAllSavedOrders = async (req, res) => {
     const orders = await Order.findAll({
       where: {
         savedStatus: "draft",
-        userId: req.user.id, // Only show drafts belonging to the logged-in user
+        /* userId: req.user.id, */ // Only show drafts belonging to the logged-in user
       },
     });
 

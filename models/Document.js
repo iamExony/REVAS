@@ -23,7 +23,8 @@ const Document = sequelize.define('Document', {
   docuSealId: {  // Changed from docusignEnvelopeId
     type: DataTypes.STRING,
     allowNull: true,
-    comment: 'DocuSeal submission ID'
+    comment: 'DocuSeal submission ID',
+    unique: true 
   },
   signingUrl: {
     type: DataTypes.STRING,
@@ -39,8 +40,10 @@ const Document = sequelize.define('Document', {
       'fully_signed',
       'expired'
     ),
+    index: true,  // Add this
     defaultValue: 'draft'
   },
+  
   signedByBuyerAt: {
     type: DataTypes.DATE,
     allowNull: true
@@ -48,7 +51,8 @@ const Document = sequelize.define('Document', {
   signedBySupplierAt: {
     type: DataTypes.DATE,
     allowNull: true
-  }
+  },
+  metadata: { type: DataTypes.JSON }
 });
 
 Document.associate = (models) => {

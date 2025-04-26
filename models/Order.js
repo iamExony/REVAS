@@ -83,11 +83,11 @@ const Order = sequelize.define("Order", {
     type: DataTypes.UUID,
     references: { model: "Users", key: "id" }
   },
-  createdById: {
+/*     createdById: {
     type: DataTypes.UUID,
     allowNull: false,
     references: { model: "Users", key: "id" }
-  }
+  } */  
 });
 
 // Corrected Associations
@@ -112,10 +112,10 @@ Order.associate = (models) => {
     foreignKey: 'supplierAccountManagerId'
   });
   
-  Order.belongsTo(models.User, {
+  /* Order.belongsTo(models.User, {
     as: 'creator',
     foreignKey: 'createdById'
-  });
+  }); */
 
   Order.hasMany(models.Notification, {
     foreignKey: 'orderId',
