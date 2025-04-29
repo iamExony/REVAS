@@ -26,12 +26,12 @@ const Notification = sequelize.define('Notification', {
       'order_created',       // When buyer AM creates order
       'status_changed',      // When supplier changes status (matched→document_phase)
       'document_generated',  // When buyer AM generates supplier order
-      'signature_requested', // When buyer/supplier needs to sign
-      'signature_completed', // When counterparty completes signing
       'order_processing',    // When status moves to processing
       'order_completed',      // Final completion
-      'submission_declined',
-      'submission_expired',
+      'document_downloaded',      // Final completion
+      'document_uploaded',      // Final completion
+
+      'error',
     ),
     allowNull: false
   },

@@ -79,14 +79,14 @@ User.associate = (models) => {
   });
   User.hasMany(models.Order, {
     as: "managedBuyerOrders",
-    foreignKey: "accountManagerId",
+    foreignKey: "buyerAccountManagerId",
     scope: {
       role: "buyer",
     },
   });
   User.hasMany(models.Order, {
     as: "managedSupplierOrders",
-    foreignKey: "accountManagerId",
+    foreignKey: "supplierAccountManagerId",
     scope: {
       role: "supplier", // Filters orders where user is a supplier account manager
     },

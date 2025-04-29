@@ -6,7 +6,7 @@ const Order = sequelize.define("Order", {
     type: DataTypes.UUID,
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true,
-    allowNull: false
+    allowNull: false,
   },
   // Order Details
   buyerName: { type: DataTypes.STRING, allowNull: false },
@@ -21,12 +21,12 @@ const Order = sequelize.define("Order", {
   shippingCost: { type: DataTypes.INTEGER, allowNull: false },
   negotiatePrice: { type: DataTypes.BOOLEAN, allowNull: true },
   priceRange: { type: DataTypes.INTEGER, allowNull: true },
-  
+
   // Status Tracking
   savedStatus: {
     type: DataTypes.STRING,
     defaultValue: "pending",
-    allowNull: false
+    allowNull: false,
   },
   status: {
     type: DataTypes.ENUM(
@@ -37,94 +37,111 @@ const Order = sequelize.define("Order", {
       "completed"
     ),
     defaultValue: "not_matched",
-    allowNull: false
+    allowNull: false,
   },
-   documentType: {
-  type: DataTypes.ENUM("purchase_order", "sales_order", "supply_order"),
-  allowNull: true
-},
-  
+  documentType: {
+    type: DataTypes.ENUM("purchase_order", "sales_order", "supply_order"),
+    allowNull: true,
+  },
+
   // Document Management
   docUrl: { type: DataTypes.STRING },
   buyerDocuSignId: { type: DataTypes.STRING },
   supplierDocuSignId: { type: DataTypes.STRING },
   documentGeneratedAt: { type: DataTypes.DATE },
-  
+
   // Signatures
-  buyerSigned: { 
-    type: DataTypes.BOOLEAN, 
-    defaultValue: false 
+  buyerSigned: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   },
-  supplierSigned: { 
-    type: DataTypes.BOOLEAN, 
-    defaultValue: false 
+  supplierSigned: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   },
   lastSignedAt: { type: DataTypes.DATE },
-  
+
   // Relationships
   buyerId: {
     type: DataTypes.UUID,
-    references: { model: "Users", key: "id" }
+    references: { model: "Users", key: "id" },
   },
   invoiceNumber: {
     type: DataTypes.STRING,
-    allowNull: true // Change to false if required
+    allowNull: true, // Change to false if required
   },
   supplierId: {
     type: DataTypes.UUID,
-    allowNull: true,  // Can be null initially
-    references: { model: "Users", key: "id" }
+    allowNull: true, // Can be null initially
+    references: { model: "Users", key: "id" },
   },
   buyerAccountManagerId: {
     type: DataTypes.UUID,
-    references: { model: "Users", key: "id" }
+    references: { model: "Users", key: "id" },
   },
   supplierAccountManagerId: {
     type: DataTypes.UUID,
-    references: { model: "Users", key: "id" }
+    references: { model: "Users", key: "id" },
   },
-/*     createdById: {
+  /*     createdById: {
     type: DataTypes.UUID,
     allowNull: false,
     references: { model: "Users", key: "id" }
-  } */  
+  } */
 });
+
+// Add this instance method to safely get names
+/* Order.prototype.getPartyNames = async function() {
+  await this.reload({
+    include: [
+      { model: sequelize.models.User, as: 'buyer', attributes: ['firstName', 'lastName'] },
+      { model: sequelize.models.User, as: 'supplier', attributes: ['firstName', 'lastName'] }
+    ]
+  });
+  
+  return {
+    buyerName: this.buyer ? `${this.buyer.firstName} ${this.buyer.lastName}` : this.buyerName,
+    supplierName: this.supplier ? `${this.supplier.firstName} ${this.supplier.lastName}` : this.supplierName
+  };
+}; */
 
 // Corrected Associations
 Order.associate = (models) => {
-  Order.belongsTo(models.User, { 
-    as: 'buyer',
-    foreignKey: 'buyerId'
-  });
-  
   Order.belongsTo(models.User, {
-    as: 'supplier',
-    foreignKey: 'supplierId'
+    as: "buyer",
+    foreignKey: "buyerId",
+    hooks: true
   });
-  
+
   Order.belongsTo(models.User, {
-    as: 'buyerAccountManager',
-    foreignKey: 'buyerAccountManagerId'
+    as: "supplier",
+    foreignKey: "supplierId",
+    hooks: true
   });
-  
+
   Order.belongsTo(models.User, {
-    as: 'supplierAccountManager',
-    foreignKey: 'supplierAccountManagerId'
+    as: "buyerAccountManager",
+    foreignKey: "buyerAccountManagerId",
   });
-  
+
+  Order.belongsTo(models.User, {
+    as: "supplierAccountManager",
+    foreignKey: "supplierAccountManagerId",
+  });
+
   /* Order.belongsTo(models.User, {
     as: 'creator',
     foreignKey: 'createdById'
   }); */
 
   Order.hasMany(models.Notification, {
-    foreignKey: 'orderId',
-    as: 'notifications'
+    foreignKey: "orderId",
+    as: "notifications",
   });
 
   Order.hasMany(models.Document, {
-    foreignKey: 'orderId',
-    as: 'documents'
+    foreignKey: "orderId",
+    as: "documents",
   });
 };
 

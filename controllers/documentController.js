@@ -1,7 +1,6 @@
 const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 const { v4: uuidv4 } = require("uuid");
 const { Order, Document, Notification, User } = require("../models");
-const { default: docuseal } = require("@docuseal/api"); // Note the .default
 const cloudinary = require("cloudinary").v2;
 const path = require("path");
 const fs = require("fs");
@@ -9,6 +8,10 @@ const dotenv = require("dotenv");
 const logoPath = path.join(__dirname, "../assets/revas-logo.png");
 const { generateInvoiceNumber } = require("../utils/invoiceGenerator");
 const crypto = require("crypto");
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
+const axios = require('axios');
+
 
 dotenv.config();
 
@@ -19,11 +22,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Initialize DocuSeal client
-docuseal.configure({
-  apiKey: process.env.DOCUSEAL_API_KEY,
-  baseUrl: process.env.DOCUSEAL_BASE_URL || "http://localhost:3000",
-});
+
 
 function drawWrappedText(page, text, x, y, maxWidth, lineHeight, options) {
   const words = text.split(" ");
@@ -103,10 +102,13 @@ class DocumentController {
         docType
       );
       const filename = `${docType}_${order.id}_${uuidv4()}.pdf`;
-      const docUrl = await DocumentController.uploadToStorage(
+      const uploadResult = await DocumentController.uploadToStorage(
         pdfBuffer,
-        filename
+        filename,
+        false
       );
+          // Ensure we're using the string URL
+    const docUrl = typeof uploadResult === 'object' ? uploadResult.url : uploadResult;
       const documentRecord = await Document.create({
         orderId: id,
         type: docType,
@@ -673,18 +675,18 @@ class DocumentController {
   /**
    * Upload to Cloudinary Storage
    */
-  static async uploadToStorage(buffer, filename) {
+  static async uploadToStorage(buffer, filename, isPrivate = false) {
     return new Promise((resolve, reject) => {
       cloudinary.uploader
         .upload_stream(
           {
             resource_type: "raw",
-            public_id: `documents/${filename.replace(".pdf", "")}`,
+            public_id: filename.replace('.pdf', ''),
             format: "pdf",
-            type: "upload",
+            type: isPrivate ? "private" : "upload",
             invalidate: true,
             transformation: [
-              { flags: "attachment" }, // Forces download instead of browser preview
+              { flags: "attachment" }
             ],
           },
           (error, result) => {
@@ -692,397 +694,348 @@ class DocumentController {
               console.error("Upload error:", error);
               reject(new Error("Failed to upload document"));
             } else {
-              // Build a direct access URL
               const pdfUrl = cloudinary.url(result.public_id, {
                 resource_type: "raw",
                 secure: true,
-                sign_url: true, // Recommended for raw files
-                expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiry
+                sign_url: isPrivate,
+                expires_at: isPrivate ? Math.floor(Date.now() / 1000) + 3600 : undefined
               });
-              resolve(pdfUrl);
+              resolve({ url: pdfUrl, public_id: result.public_id });
             }
           }
         )
         .end(buffer);
     });
   }
+
   /**
-   * Initiate signing process
+   * Download document endpoint
    */
-  static async initiateSigning(req, res) {
+/*    static async downloadDocument(req, res) {
+    let document;
+    
     try {
-      const { orderId, docType } = req.params;
-      const order = await Order.findByPk(orderId, {
-        include: [
-          { model: User, as: "buyerUser" },
-          { model: User, as: "supplierUser" },
-        ],
-      });
-
-      if (!order) return res.status(404).json({ error: "Order not found" });
-
-      const pdfBuffer = await this.generateOrderPDF(order, docType);
-      const filename = `${docType}_${orderId}_${uuidv4()}.pdf`;
-      const fileUrl = await this.uploadToStorage(pdfBuffer, filename);
-
-      const submission = await docuseal.createSubmission({
-        document: { file: pdfBuffer, name: filename },
-        signers: [
-          {
-            email: order.buyerEmail,
-            name: order.buyerName,
-            role: "buyer",
-            fields: [
-              {
-                type: "signature",
-                page: 1, // Match your PDF page numbers
-                x: 50,
-                y: 200,
-                width: 120,
-                height: 50,
-              },
-            ],
-          },
-          // Similar for supplier
-        ],
-        metadata: { orderId, docType },
-        send_email: false, // Since you want embedded signing
-        redirect_url: `${process.env.FRONTEND_URL}/orders/${orderId}`,
-        embedded: true, // ← Critical for embedded signing!
-      });
-
-      const document = await Document.create({
-        id: uuidv4(),
-        type: docType,
-        orderId,
-        fileUrl,
-        docuSealId: submission.id,
-        signingUrl: submission.url,
-        status: "pending_signatures",
-        generatedById: req.user.id,
-      });
-
-      await Notification.bulkCreate([
-        {
-          id: uuidv4(),
-          type: "document_generated",
-          message: `${docType.replace("_", " ")} document has been generated`,
-          orderId,
-          userId: req.user.id,
-          metadata: { documentUrl: fileUrl },
-        },
-        {
-          id: uuidv4(),
-          type: "signature_requested",
-          message: `Please sign the ${docType.replace("_", " ")}`,
-          orderId,
-          userId: order.buyerUser.id,
-          metadata: { signingUrl: submission.url },
-        },
-        {
-          id: uuidv4(),
-          type: "signature_requested",
-          message: `Please sign the ${docType.replace("_", " ")}`,
-          orderId,
-          userId: order.supplierUser.id,
-          metadata: { signingUrl: submission.url },
-        },
-      ]);
-
-      return res.status(201).json({
-        success: true,
-        documentId: document.id,
-        signingUrl: submission.url,
-        fileUrl,
-      });
-    } catch (error) {
-      console.error("Signing failed:", {
-        error: error.response?.data || error.message,
-      });
-
-      await Notification.create({
-        type: "signature_failed",
-        message: `Failed to initiate ${docType} signing`,
-        orderId,
-        userId: req.user.id,
-      });
-
-      return res.status(500).json({
-        error: "Signing initiation failed",
-        details: error.message,
-      });
-    }
-  }
-
-  /**
-   * Handle webhook events
-   */ // Add to top of handleWebhook
-  static async handleWebhook(req, res) {
-    try {
-      const signature = req.headers["docuseal-signature"];
-      const secret = process.env.DOCUSEAL_WEBHOOK_SECRET;
-
-      // Call it correctly using the class name
-      if (
-        !DocumentController.verifyWebhookSignature(
-          JSON.stringify(req.body),
-          signature,
-          secret
-        )
-      ) {
-        return res.status(401).send("Invalid signature");
+      const { orderId } = req.params;
+      const { user } = req;
+  
+      // 1. Validate document exists in database
+      document = await Document.findOne({ where: { orderId } });
+      if (!document || !document.fileUrl) {
+        return res.status(404).json({ error: "Document not found in database" });
       }
-
-      // 4. Process verified webhook
-      console.log("Processing:", req.body.event_type);
-      switch (req.body.event_type) {
-        case "submission_completed":
-          await this.handleSubmissionCompleted(req.body);
-          break;
-        case "submission_viewed":
-          await this.handleSubmissionViewed(req.body);
-          break;
-        case "submission_opened":
-          await this.handleSubmissionOpened(req.body);
-          break;
-        case "test": // Add explicit test handler
-          console.log("Test webhook received - verification successful");
-          break;
-        case "submission_declined":
-          await this.handleSubmissionDeclined(req.body);
-          break;
-        case "submission_expired":
-          await this.handleSubmissionExpired(req.body);
-          break;
-        default:
-          console.warn("Unhandled event type:", req.body.event_type);
+  
+      // 2. Verify user permissions
+      const order = await Order.findByPk(orderId);
+      if (!order || ![order.buyerId, order.supplierId].includes(user.id)) {
+        return res.status(403).json({ error: "Not authorized" });
       }
-
-      res.status(200).send("OK");
-    } catch (error) {
-      console.error("Webhook processing error:", error);
-      res.status(500).send("Error processing webhook");
-    }
-  }
-  static async handleSubmissionDeclined(event) {
-    const { submission } = event.data;
-    await Document.update(
-      { status: "declined" },
-      { where: { docuSealId: submission.id } }
-    );
-    await Notification.bulkCreate([
-      {
-        id: uuidv4(),
-        type: "submission_declined",
-        message: `Submission has been declined`,
-        orderId: document.orderId,
-        userId: document.generatedById,
-        metadata: { documentUrl: signedUrl },
-      },
-      {
-        id: uuidv4(),
-        type: "submission_declined",
-        message: `Submission has been declined`,
-        orderId: document.orderId,
-        userId: order.buyerUser.id,
-        metadata: { documentUrl: signedUrl },
-      },
-      {
-        id: uuidv4(),
-        type: "submission_declined",
-        message: `Submission has been declined`,
-        orderId: document.orderId,
-        userId: order.supplierUser.id,
-        metadata: { documentUrl: signedUrl },
-      },
-    ]);
-  }
-
-  static async handleSubmissionExpired(event) {
-    const { submission } = event.data;
-    await Document.update(
-      { status: "expired" },
-      { where: { docuSealId: submission.id } }
-    );
-    await Notification.bulkCreate([
-      {
-        id: uuidv4(),
-        type: "submission_expired",
-        message: `Submission has been expired`,
-        orderId: document.orderId,
-        userId: document.generatedById,
-        metadata: { documentUrl: signedUrl },
-      },
-      {
-        id: uuidv4(),
-        type: "submission_expired",
-        message: `Submission has been expired`,
-        orderId: document.orderId,
-        userId: order.buyerUser.id,
-        metadata: { documentUrl: signedUrl },
-      },
-      {
-        id: uuidv4(),
-        type: "submission_expired",
-        message: `Submission has been expired`,
-        orderId: document.orderId,
-        userId: order.supplierUser.id,
-        metadata: { documentUrl: signedUrl },
-      },
-    ]);
-  }
-  static async handleSubmissionCompleted(event) {
-    try {
-      const { submission } = event.data;
-      const document = await Document.findOne({
-        where: { docuSealId: submission.id },
-      });
-      if (!document) return;
-
-      const pdfBuffer = await docuseal.submissions.download(submission.id);
-      const filename = `signed_${document.type}_${
-        document.orderId
-      }_${uuidv4()}.pdf`;
-      const signedUrl = await this.uploadToStorage(pdfBuffer, filename);
-
-      await document.update({
-        fileUrl: signedUrl,
-        status: "fully_signed",
-        signedAt: new Date(),
-      });
-
-      const order = await Order.findByPk(document.orderId, {
-        include: [
-          { model: User, as: "buyerUser" },
-          { model: User, as: "supplierUser" },
-        ],
-      });
-
-      await Notification.bulkCreate([
-        {
-          id: uuidv4(),
-          type: "signature_completed",
-          message: `${document.type.replace("_", " ")} has been fully signed`,
-          orderId: document.orderId,
-          userId: document.generatedById,
-          metadata: { documentUrl: signedUrl },
-        },
-        {
-          id: uuidv4(),
-          type: "signature_completed",
-          message: `${document.type.replace("_", " ")} has been completed`,
-          orderId: document.orderId,
-          userId: order.buyerUser.id,
-          metadata: { documentUrl: signedUrl },
-        },
-        {
-          id: uuidv4(),
-          type: "signature_completed",
-          message: `${document.type.replace("_", " ")} has been completed`,
-          orderId: document.orderId,
-          userId: order.supplierUser.id,
-          metadata: { documentUrl: signedUrl },
-        },
-      ]);
-    } catch (error) {
-      console.error("Submission completion error:", error);
-    }
-  }
-
-  static async handleSubmissionViewed(event) {
-    try {
-      const { submission } = event.data;
-      const document = await Document.findOne({
-        where: { docuSealId: submission.id },
-      });
-      if (!document) return;
-
-      await Notification.create({
-        id: uuidv4(),
-        type: "signature_requested",
-        message: `${document.type.replace(
-          "_",
-          " "
-        )} has been viewed by recipient`,
-        orderId: document.orderId,
-        userId: document.generatedById,
-        metadata: { submissionId: submission.id },
-      });
-    } catch (error) {
-      console.error("Submission viewed error:", error);
-    }
-  }
-
-  static async handleSubmissionOpened(event) {
-    try {
-      const { submission } = event.data;
-      const document = await Document.findOne({
-        where: { docuSealId: submission.id },
-      });
-      if (!document) return;
-
-      await document.update({ status: "pending_signatures" });
-    } catch (error) {
-      console.error("Submission opened error:", error);
-    }
-  }
-  static async getSigningUrl(req, res) {
-    try {
-      const document = await Document.findByPk(req.params.id);
-      if (!document)
-        return res.status(404).json({ error: "Document not found" });
-
-      if (document.status !== "pending_signatures") {
-        return res
-          .status(400)
-          .json({ error: "Document not ready for signing" });
+  
+      // 3. Extract public ID more reliably
+      let publicId;
+      try {
+        const urlObj = new URL(document.fileUrl);
+        publicId = urlObj.pathname
+          .split('/')
+          .slice(4) // Skip '/raw/upload/' parts
+          .join('/')
+          .replace('.pdf', '');
+      } catch (e) {
+        // Fallback for older URL formats
+        const parts = document.fileUrl.split('/upload/');
+        publicId = parts[1]?.replace('.pdf', '') || '';
       }
-
-      res.json({
-        signingUrl: document.signingUrl,
-        embed: true, // Indicate to frontend to use embedded mode
+  
+      if (!publicId) {
+        throw new Error('Could not extract public ID from document URL');
+      }
+  
+      // 4. Generate secure download URL
+      const downloadUrl = cloudinary.url(publicId, {
+        resource_type: 'raw',
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 300, // 5 minute expiry
+        flags: 'attachment',
+        type: 'authenticated' // Ensures proper access to private files
       });
-    } catch (error) {
-      console.error("Error getting signing URL:", error);
-      res.status(500).json({ error: "Failed to get signing URL" });
-    }
-  }
-  /**
-   * Get document status
-   */
-  static async getDocumentStatus(req, res) {
-    try {
-      const document = await Document.findByPk(req.params.id);
-      if (!document)
-        return res.status(404).json({ error: "Document not found" });
-
-      let statusDetails = {
-        status: document.status,
-        fileUrl: document.fileUrl,
-      };
-
-      if (
-        document.docuSealId &&
-        ["pending_signatures", "partially_signed"].includes(document.status)
-      ) {
-        try {
-          const submission = await docuseal.submissions.get(
-            document.docuSealId
-          );
-          statusDetails.docuSealStatus = submission.status;
-          if (submission.status === "completed") {
-            await document.update({ status: "fully_signed" });
-            statusDetails.status = "fully_signed";
-          }
-        } catch (e) {
-          console.error("DocuSeal status check error:", e);
+  
+      // 5. Verify the file exists on Cloudinary
+      try {
+        await cloudinary.api.resource(publicId, {
+          resource_type: 'raw',
+          type: 'authenticated'
+        });
+      } catch (cloudinaryError) {
+        if (cloudinaryError.message.includes('404')) {
+          throw new Error('Document not found on Cloudinary');
         }
+        throw cloudinaryError;
+      }
+  
+      // 6. Create notification
+      await Notification.create({
+        userId: user.id,
+        orderId,
+        message: `Downloaded ${document.type.replace('_', ' ')} document`,
+        type: "document_downloaded"
+      });
+  
+      // 7. Stream the file through the server
+      const response = await axios.get(downloadUrl, {
+        responseType: 'stream',
+        maxRedirects: 0 // Important for signed URLs
+      });
+  
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="document_${orderId}.pdf"`);
+      response.data.pipe(res);
+  
+    } catch (error) {
+      console.error("Download error:", {
+        message: error.message,
+        documentUrl: document?.fileUrl,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+      
+      const statusCode = error.message.includes('not found') ? 404 : 500;
+      return res.status(statusCode).json({ 
+        error: "Download failed",
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }  */
+
+  /**
+   * Secure document upload with private storage
+   */
+
+   static async downloadDocument(req, res) {
+    let document;
+    
+    try {
+      const { orderId } = req.params;
+      const { user } = req;
+  
+      // 1. Validate document exists in database
+      document = await Document.findOne({ 
+        where: { orderId },
+        include: [{ model: Order, as: 'order', required: true  }] // Eager load the order
+      });
+  
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+  
+      // 2. Verify order exists and has required fields
+      if (!document.Order || 
+          !document.Order.buyerId || 
+          !document.Order.supplierId) {
+        return res.status(400).json({ error: "Invalid order data" });
+      }
+  
+      // 3. Check user permissions
+      const isAuthorized = user.id === document.Order.buyerId || 
+                          user.id === document.Order.supplierId;
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+  
+      if (!document.fileUrl) {
+        return res.status(404).json({ error: "Document URL missing" });
+      }
+  
+      // 2. Verify user permissions - now safe because order is loaded
+      if (![document.Order.buyerId, document.Order.supplierId].includes(user.id)) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+  
+      // 3. Extract public ID with multiple fallback methods
+      let publicId;
+      try {
+        // Method 1: URL parsing
+        const urlObj = new URL(document.fileUrl);
+        publicId = urlObj.pathname.split('/')
+          .slice(urlObj.pathname.includes('raw/upload') ? 4 : 2)
+          .join('/')
+          .replace('.pdf', '');
+      } catch (e) {
+        // Method 2: Simple split fallback
+        const parts = document.fileUrl.split('/upload/');
+        publicId = parts[1] ? parts[1].replace('.pdf', '') : null;
+      }
+  
+      if (!publicId) {
+        throw new Error('Could not extract public ID from URL');
+      }
+  
+      // 4. Generate secure download URL
+      const downloadUrl = cloudinary.url(publicId, {
+        resource_type: 'raw',
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 300,
+        flags: 'attachment',
+        type: 'authenticated'
+      });
+  
+      // 5. Verify file exists on Cloudinary
+      try {
+        await cloudinary.api.resource(publicId, {
+          resource_type: 'raw',
+          type: 'authenticated'
+        });
+      } catch (err) {
+        if (err.message.includes('404')) {
+          throw new Error(`Document not found on Cloudinary: ${publicId}`);
+        }
+        throw err;
+      }
+  
+      // 6. Create download notification
+      await Notification.create({
+        userId: user.id,
+        orderId,
+        message: `Downloaded ${document.type.replace('_', ' ')} document`,
+        type: "document_downloaded"
+      });
+  
+      // 7. Stream the file
+      const response = await axios.get(downloadUrl, {
+        responseType: 'stream',
+        maxRedirects: 0
+      });
+  
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${document.type}_${orderId}.pdf"`);
+      response.data.pipe(res);
+  
+    } catch (error) {
+      console.error("Download error:", {
+        message: error.message,
+        documentUrl: document?.fileUrl,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+  
+      const statusCode = error.message.includes('not found') ? 404 : 500;
+      res.status(statusCode).json({ 
+        error: "Download failed",
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  } 
+
+  static async uploadSignedDocument(req, res) {
+    try {
+      const { orderId } = req.params;
+      const { user } = req;
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
       }
 
-      return res.json(statusDetails);
+      if (!req.file.mimetype.includes('pdf')) {
+        return res.status(400).json({ error: "Only PDF files are allowed" });
+      }
+
+      const order = await Order.findByPk(orderId);
+      if (![order.buyerId, order.supplierId].includes(user.id)) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      const filename = `signed_docs/${orderId}_${Date.now()}`;
+      const { public_id } = await DocumentController.uploadToStorage(
+        req.file.buffer,
+        filename,
+        true // Mark as private
+      );
+
+      await Document.update({
+        signingUrl: public_id,
+        status: "fully_signed",
+        signedById: user.id,
+        signedAt: new Date()
+      }, { where: { orderId } });
+
+      const otherPartyId = user.id === order.buyerId ? order.supplierId : order.buyerId;
+      
+      await Notification.bulkCreate([
+        {
+          userId: user.id,
+          orderId,
+          message: "You uploaded a signed document",
+          type: "document_uploaded"
+        },
+        {
+          userId: otherPartyId,
+          orderId,
+          message: `${user.name} uploaded a signed document`,
+          type: "document_uploaded"
+        }
+      ]);
+
+      res.json({ success: true });
     } catch (error) {
-      console.error("Status check error:", error);
-      return res.status(500).json({ error: "Failed to get status" });
+      console.error("Upload error:", error);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  }
+
+  /**
+   * Admin-only document access
+   */
+  static async getSignedDocument(req, res) {
+    try {
+      const { orderId } = req.params;
+      
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const document = await Document.findOne({ where: { orderId } });
+      if (!document?.signingUrl) {
+        return res.status(404).json({ error: "Signed document not found" });
+      }
+
+      const signedUrl = cloudinary.url(document.signingUrl, {
+        resource_type: 'raw',
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 300 // 5 minute expiry
+      });
+
+      res.json({ url: signedUrl });
+    } catch (error) {
+      console.error("Access error:", error);
+      res.status(500).json({ error: "Document access failed" });
+    }
+  }
+  static async getUserSignedDocument(req, res) {
+    try {
+      const { orderId } = req.params;
+      const { user } = req;
+  
+      const order = await Order.findByPk(orderId);
+      if (![order.buyerId, order.supplierId].includes(user.id)) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+  
+      const document = await Document.findOne({ where: { orderId } });
+      if (!document?.signingUrl) {
+
+        return res.status(404).json({ error: "No signed document found" });
+      }
+  
+      const signedUrl = cloudinary.url(document.signingUrl, {
+        resource_type: 'raw',
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + 300 // 5 min expiry
+      });
+  
+      res.json({ url: signedUrl });
+    } catch (error) {
+      console.error("Access error:", error);
+      res.status(500).json({ error: "Document access failed" });
     }
   }
 }

@@ -77,25 +77,25 @@ router.patch('/api/orders/:id/status',
  *       properties:
  *         buyerId:
  *           type: string
- *           example: "c3707139-7d78-4802-b8c8-fe526bbcf313"
+ *           example: "27e7490b-2562-4c81-9f7c-a9dfde1212b2"
  *         supplierId:
  *           type: string
- *           example: "0d4c98ed-6f7a-4fb0-b2a0-addb0b1dbd06"
+ *           example: "07d819aa-74ab-428e-bb42-94a87c141495"
  *         buyerName:
  *           type: string
- *           example: "Rivers State Plastic"
+ *           example: "EZE Flakes Inc."
  *         location:
  *           type: string
- *           example: "Ebonyi State, Nigeria"
+ *           example: "Lagos, Nigeria"
  *         product:
  *           type: string
- *           example:  "YUP"
+ *           example:  "PET"
  *         capacity:
  *           type: integer
- *           example: 4000
+ *           example: 1000
  *         pricePerTonne:
  *           type: integer
- *           example: 600
+ *           example: 500
  *         shippingType:
  *           type: string
  *           example: "FOB"
@@ -104,10 +104,10 @@ router.patch('/api/orders/:id/status',
  *           example: 50
  *         supplierName:
  *           type: string
- *           example: "PET Flakes Inc."
+ *           example: "DANIEL Flakes Inc."
  *         supplierPrice:
  *           type: integer
- *           example: 500
+ *           example: 2000
  *         shippingCost:
  *           type: integer
  *           example: 100

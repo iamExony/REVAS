@@ -65,7 +65,7 @@ exports.loginAccountManager = async (req, res) => {
     }
 
     // Generate token
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     // Remove password before sending response
     const userResponse = { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role };

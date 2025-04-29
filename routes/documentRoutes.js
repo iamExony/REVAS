@@ -2,19 +2,24 @@ const express = require('express');
 const router = express.Router();
 const documentController = require('../controllers/documentController');
 const { authMiddleware, authenticateRole } = require('../middleware/authMiddleware');
-const rateLimit = require('express-rate-limit');
-const { body, param } = require('express-validator');
-const apicache = require('apicache');
-const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 
-// Configure rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'), false);
+    }
+  }
 });
-
-// Configure caching
-const cache = apicache.middleware;
 
 /**
  * @swagger
@@ -42,6 +47,8 @@ const cache = apicache.middleware;
  *         fileUrl:
  *           type: string
  *           format: url
+ *         signedFileRef:
+ *           type: string
  *         signingUrl:
  *           type: string
  *           format: url
@@ -52,26 +59,14 @@ const cache = apicache.middleware;
  *           type: string
  *           format: date-time
  * 
- *     DocuSealWebhook:
+ *     DocumentResponse:
  *       type: object
  *       properties:
- *         event_type:
+ *         url:
  *           type: string
- *           enum: [submission_completed, submission_viewed, submission_opened, submission_declined, submission_expired]
- *         data:
- *           type: object
- *           properties:
- *             submission:
- *               type: object
- *               properties:
- *                 id:
- *                   type: string
- *                 status:
- *                   type: string
- *                 documents:
- *                   type: array
- *                   items:
- *                     type: object
+ *           format: url
+ *         public_id:
+ *           type: string
  * 
  *   securitySchemes:
  *     bearerAuth:
@@ -128,15 +123,17 @@ router.post('/documents/orders/:id',
 );
 
 // ======================
-// DOCUMENT SIGNING
+// DOCUMENT DOWNLOAD/UPLOAD
 // ======================
+
+
 
 /**
  * @swagger
- * /documents/orders/{orderId}/sign:
+ * /documents/orders/{orderId}/upload:
  *   post:
- *     summary: Initiate document signing
- *     description: Creates signing request for all parties
+ *     summary: Upload signed document
+ *     description: Uploads a signed version of the document
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
@@ -149,16 +146,16 @@ router.post('/documents/orders/:id',
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
- *               docType:
+ *               signedDocument:
  *                 type: string
- *                 enum: [sales_order, purchase_order, contract]
+ *                 format: binary
  *     responses:
- *       201:
- *         description: Signing initiated
+ *       200:
+ *         description: Document uploaded successfully
  *         content:
  *           application/json:
  *             schema:
@@ -166,238 +163,91 @@ router.post('/documents/orders/:id',
  *               properties:
  *                 success:
  *                   type: boolean
- *                 documentId:
- *                   type: string
- *                   format: uuid
- *                 signingUrl:
- *                   type: string
- *                   format: url
  *       400:
- *         description: Invalid request
+ *         description: Invalid file format or no file uploaded
+ *       403:
+ *         description: Forbidden
  *       500:
  *         description: Server error
  */
-router.post('/documents/orders/:orderId/sign',
-  apiLimiter,
+router.post('/documents/orders/:orderId/upload',
   authMiddleware,
-  [
-    param('orderId').isUUID(),
-    body('docType').isIn(['sales_order', 'purchase_order', 'contract'])
-  ],
-  documentController.initiateSigning
+  upload.single('signedDocument'),
+  documentController.uploadSignedDocument
 );
+
+// ======================
+// DOCUMENT ACCESS
+// ======================
 
 /**
  * @swagger
- * /documents/{documentId}/signing-url:
+ * /documents/orders/{orderId}/signed:
  *   get:
- *     summary: Get signing URL
- *     description: Retrieve embedded signing URL
+ *     summary: Get signed document (User)
+ *     description: Returns a temporary access URL for the signed document
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: documentId
+ *         name: orderId
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
  *     responses:
  *       200:
- *         description: Signing URL retrieved
+ *         description: Returns signed document URL
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 signingUrl:
- *                   type: string
- *                   format: url
- *                 embed:
- *                   type: boolean
+ *               $ref: '#/components/schemas/DocumentResponse'
+ *       403:
+ *         description: Forbidden - user not authorized
  *       404:
- *         description: Document not found
+ *         description: Signed document not found
  *       500:
  *         description: Server error
  */
-router.get('/documents/:documentId/signing-url',
+router.get('/documents/orders/:orderId/signed',
   authMiddleware,
-  documentController.getSigningUrl
+  documentController.getUserSignedDocument
 );
-
-// ======================
-// DOCUMENT STATUS & ACCESS
-// ======================
 
 /**
  * @swagger
- * /documents/{documentId}/status:
+ * /documents/admin/orders/{orderId}/signed:
  *   get:
- *     summary: Get document status
- *     description: Check signing progress and status
+ *     summary: Get signed document (Admin)
+ *     description: Admin access to signed documents
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: documentId
+ *         name: orderId
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
  *     responses:
  *       200:
- *         description: Status retrieved
+ *         description: Returns signed document URL
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Document'
+ *               $ref: '#/components/schemas/DocumentResponse'
+ *       403:
+ *         description: Forbidden - admin access required
  *       404:
- *         description: Document not found
+ *         description: Signed document not found
  *       500:
  *         description: Server error
  */
-router.get('/documents/:documentId/status',
+router.get('/documents/admin/orders/:orderId/signed',
   authMiddleware,
-  cache('5 minutes'),
-  documentController.getDocumentStatus
+  authenticateRole(['admin']),
+  documentController.getSignedDocument
 );
-
-/**
- * @swagger
- * /documents/{documentId}/download:
- *   get:
- *     summary: Download document
- *     description: Get downloadable link for document
- *     tags: [Documents]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: documentId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       302:
- *         description: Redirects to download URL
- *       404:
- *         description: Document not found
- *       500:
- *         description: Server error
- */
-router.get('/documents/:documentId/download',
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const document = await Document.findByPk(req.params.documentId);
-      if (!document) return res.status(404).json({ error: 'Document not found' });
-
-      const parts = document.fileUrl.split('/upload/');
-      const publicId = parts[1].replace('.pdf', '');
-      
-      const downloadUrl = cloudinary.url(publicId, {
-        resource_type: 'raw',
-        secure: true,
-        sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-        transformation: [{ flags: 'attachment' }]
-      });
-      
-      res.redirect(downloadUrl);
-    } catch (error) {
-      res.status(500).json({ error: 'Download failed' });
-    }
-  }
-);
-
-// ======================
-// WEBHOOKS
-// ======================
-
-/**
- * @swagger
- * /documents/webhooks:
- *   post:
- *     summary: DocuSeal webhook handler
- *     description: Processes signing events from DocuSeal
- *     tags: [Documents]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/DocuSealWebhook'
- *     responses:
- *       200:
- *         description: Webhook processed
- *       401:
- *         description: Invalid signature
- *       500:
- *         description: Server error
- */
-router.post('/documents/webhooks',
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100
-  }),
-  express.raw({ type: 'application/json' }),
-  (req, res, next) => {
-    if (!req.headers['docuseal-signature']) {
-      return res.status(401).json({ error: "Missing signature header" });
-    }
-    try {
-      req.body = JSON.parse(req.body.toString());
-      next();
-    } catch (e) {
-      res.status(400).json({ error: "Invalid JSON" });
-    }
-  },
-  documentController.handleWebhook
-);
-
-// ======================
-// HEALTH CHECK
-// ======================
-
-/**
- * @swagger
- * /documents/health:
- *   get:
- *     summary: Health check
- *     description: Check service status
- *     tags: [Documents]
- *     responses:
- *       200:
- *         description: Service is healthy
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                 dependencies:
- *                   type: object
- *                   properties:
- *                     docuseal:
- *                       type: boolean
- *                     storage:
- *                       type: boolean
- */
-router.get('/documents/health', async (req, res) => {
-  const health = {
-    status: 'healthy',
-    dependencies: {
-      docuseal: true,
-      storage: true
-    },
-    timestamp: new Date().toISOString()
-  };
-  res.json(health);
-});
 
 // Error handling middleware
 router.use((err, req, res, next) => {

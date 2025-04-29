@@ -26,7 +26,12 @@ const app = express();
 }); */
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS.split(','),
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Disposition'] // Important for downloads
+}));
 /* app.use(cors({
   origin: 'https://yourfrontend.com', // Only allow your frontend
   credentials: true
