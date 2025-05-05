@@ -249,6 +249,62 @@ router.get('/documents/admin/orders/:orderId/signed',
   documentController.getSignedDocument
 );
 
+// Add this new route
+/**
+ * @swagger
+ * /documents/{documentId}/sign:
+ *   post:
+ *     summary: Sign a document
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: documentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               signatureData:
+ *                 type: string
+ *                 description: Base64 encoded signature image
+ *               signaturePosition:
+ *                 type: object
+ *                 properties:
+ *                   pageNumber:
+ *                     type: number
+ *                   x:
+ *                     type: number
+ *                   y:
+ *                     type: number
+ *                   width:
+ *                     type: number
+ *                   height:
+ *                     type: number
+ *               signerRole:
+ *                 type: string
+ *                 enum: [buyer, supplier]
+ *     responses:
+ *       200:
+ *         description: Document signed successfully
+ *       400:
+ *         description: Invalid request
+ *       403:
+ *         description: Not authorized
+ *       500:
+ *         description: Server error
+ */
+router.post('/documents/:documentId/sign', 
+  authMiddleware,
+  documentController.signDocument
+);
+
 // Error handling middleware
 router.use((err, req, res, next) => {
   console.error('Document route error:', err);

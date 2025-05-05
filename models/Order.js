@@ -10,13 +10,18 @@ const Order = sequelize.define("Order", {
   },
   // Order Details
   buyerName: { type: DataTypes.STRING, allowNull: false },
-  location: { type: DataTypes.STRING, allowNull: false },
-  product: { type: DataTypes.STRING, allowNull: false },
+  buyerLocation: { type: DataTypes.STRING, allowNull: false },
+  product: {
+    type: DataTypes.ARRAY(DataTypes.STRING), // Array of strings
+    allowNull: false,
+    defaultValue: []
+  },
   capacity: { type: DataTypes.INTEGER, allowNull: false },
   pricePerTonne: { type: DataTypes.INTEGER, allowNull: false },
   paymentTerms: { type: DataTypes.INTEGER, allowNull: false },
   shippingType: { type: DataTypes.STRING, allowNull: false },
   supplierName: { type: DataTypes.STRING, allowNull: false },
+  supplierLocation: { type: DataTypes.STRING, allowNull: false },
   supplierPrice: { type: DataTypes.INTEGER, allowNull: false },
   shippingCost: { type: DataTypes.INTEGER, allowNull: false },
   negotiatePrice: { type: DataTypes.BOOLEAN, allowNull: true },
@@ -46,8 +51,6 @@ const Order = sequelize.define("Order", {
 
   // Document Management
   docUrl: { type: DataTypes.STRING },
-  buyerDocuSignId: { type: DataTypes.STRING },
-  supplierDocuSignId: { type: DataTypes.STRING },
   documentGeneratedAt: { type: DataTypes.DATE },
 
   // Signatures
@@ -82,28 +85,8 @@ const Order = sequelize.define("Order", {
   supplierAccountManagerId: {
     type: DataTypes.UUID,
     references: { model: "Users", key: "id" },
-  },
-  /*     createdById: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    references: { model: "Users", key: "id" }
-  } */
+  }
 });
-
-// Add this instance method to safely get names
-/* Order.prototype.getPartyNames = async function() {
-  await this.reload({
-    include: [
-      { model: sequelize.models.User, as: 'buyer', attributes: ['firstName', 'lastName'] },
-      { model: sequelize.models.User, as: 'supplier', attributes: ['firstName', 'lastName'] }
-    ]
-  });
-  
-  return {
-    buyerName: this.buyer ? `${this.buyer.firstName} ${this.buyer.lastName}` : this.buyerName,
-    supplierName: this.supplier ? `${this.supplier.firstName} ${this.supplier.lastName}` : this.supplierName
-  };
-}; */
 
 // Corrected Associations
 Order.associate = (models) => {
@@ -128,11 +111,6 @@ Order.associate = (models) => {
     as: "supplierAccountManager",
     foreignKey: "supplierAccountManagerId",
   });
-
-  /* Order.belongsTo(models.User, {
-    as: 'creator',
-    foreignKey: 'createdById'
-  }); */
 
   Order.hasMany(models.Notification, {
     foreignKey: "orderId",

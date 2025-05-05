@@ -7,6 +7,8 @@ const {
   getProductById,
   deleteProduct,
   updateProduct,
+  getUnregisteredUsers,
+  getManagedUsers,
 } = require("../controllers/productController");
 const {
   authMiddleware,
@@ -18,27 +20,76 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
 
 const router = express.Router();
 
-// Set up multer storage configuration
-/* const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "uploads/"); // Save images in the "uploads" directory
-  },
-  filename: function (req, file, cb) {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
-}); */
+/**
+ * @swagger
+ * /managed-users:
+ *   get:
+ *     summary: Get analytics for managed users
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analytics data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalUsers:
+ *                   type: integer
+ *                 registeredUsers:
+ *                   type: integer
+ *                 unregisteredUsers:
+ *                   type: integer
+ *                 byType:
+ *                   type: object
+ *                   properties:
+ *                     buyer:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         registered:
+ *                           type: integer
+ *                     supplier:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                         registered:
+ *                           type: integer
+ */
+router.get(
+  "/managed-users",
+  authMiddleware,
+  getManagedUsers
+);
 
-// File filter to accept only images
-/* const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith("image/")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files are allowed!"), false);
-  }
-}; */
+/**
+ * @swagger
+ * /unregistered-users-analytics:
+ *   get:
+ *     summary: Get unregistered users
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of unregistered users
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/User'
+ */
+router.get(
+  "/unregistered-users-analytics",
+  authMiddleware,
+  getUnregisteredUsers
+);
 
-// Initialize multer
-/* const upload = multer({ storage, fileFilter }); */
 
 /**
  * @swagger
@@ -172,10 +223,13 @@ router.get(
  *                 type: string
  *                 format: email
  *                 example: uchegodswill823@gmail.com
+ *               clientType:
+ *                 type: string
+ *                 enum: [Buyer, Supplier]
+ *                 example: Buyer
  *               role:
  *                 type: string
- *                 enum: [buyer, supplier]
- *                 example: buyer
+ *                 example: Sales Executive
  *               companyName:
  *                 type: string
  *                 example: POT Flukes Inc.
@@ -206,6 +260,7 @@ router.post(
   "/create-user-product",
   authMiddleware,
   authenticateRole(["buyer", "supplier"]),
+  parseArrays,
   createUserAndProduct
 );
 

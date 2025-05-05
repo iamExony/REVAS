@@ -45,7 +45,7 @@ app.use('/api', productRoutes);
 app.use("/api", orderRoutes);
 app.use("/api", documentRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/pdftest', pdfTestRouter);
+app.use('/api', pdfTestRouter);
 swaggerSetup(app);
 
 

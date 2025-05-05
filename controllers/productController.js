@@ -4,6 +4,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { sendEmail } = require("../utils/emailService");
 const cloudinary = require("../config/cloudinary"); // Cloudinary configuration
+const sequelize = require("../config/database");
 
 const registerProduct = async (req, res) => {
   let { companyName, product, capacity, price, location } = req.body;
@@ -57,7 +58,7 @@ const registerProduct = async (req, res) => {
 
     user.hasRegisteredProduct = true;
     await user.save();
-    
+
     res.status(201).json({
       message: "Product registered successfully",
       product: newProduct,
@@ -92,98 +93,231 @@ const getProductsByCompany = async (req, res) => {
 
 // Create User and Product
 const createUserAndProduct = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  let transactionCompleted = false;
+  let emailError = null;
+
   try {
-    let {
+    // Validate request data
+    const {
       firstName,
       lastName,
       email,
-      role,
+      clientType,
       companyName,
       product,
       capacity,
+      role,
       price,
       location,
     } = req.body;
 
-    if (!["buyer", "supplier"].includes(role)) {
+    // Authorization check
+    if (!["buyer", "supplier"].includes(req.user.role)) {
+      await transaction.rollback();
+      transactionCompleted = true;
       return res.status(403).json({
+        success: false,
         message: "Only account managers (buyer or supplier) can create a user.",
       });
     }
 
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "User with this email already exists." });
+    // Validate required fields
+    const requiredFields = ["firstName", "email", "companyName", "product"];
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
+    if (missingFields.length > 0) {
+      await transaction.rollback();
+      transactionCompleted = true;
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+        missingFields,
+      });
     }
 
+    // Check for existing user
+    const existingUser = await User.findOne({ where: { email }, transaction });
+    if (existingUser) {
+      await transaction.rollback();
+      transactionCompleted = true;
+      return res.status(409).json({
+        success: false,
+        message: "Email already exists",
+        suggestion: "Try password reset if this is your account",
+      });
+    }
+
+    // Create user with hashed password
     const randomPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
+    const formattedClientType =
+      clientType.charAt(0).toUpperCase() + clientType.slice(1);
 
-    const newUser = await User.create({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      role,
-    });
-
-    // Upload image to Cloudinary
-    let imageUrl = "";
-    if (req.file) {
-      const uploadResult = await cloudinary.uploader.upload(req.file.path);
-      imageUrl = uploadResult.secure_url;
-    }
-
-    // Register the product
-    const newProduct = await Product.create({
-      companyName,
-      product,
-      capacity,
-      price,
-      location,
-      image: imageUrl,
-      userId: newUser.id,
-    });
-
-    // Send login details via email
-    await sendEmail(
-      email,
-      "Your Account Details",
-      `
-          Hello ${firstName},
-          
-          An account has been created for your company (${companyName}).
-
-          Here are your details:
-          - Company Name: ${companyName}
-          - Email: ${email}
-          - Product: ${product}
-          - Capacity: ${capacity}
-          - Price: ${price}
-          - Location: ${location}
-          - Image: ${imageUrl}
-
-          Your login password: ${randomPassword}
-
-          Please log in and update your password.
-
-          Regards,
-          Reavas Team
-      `
+    const newUser = await User.create(
+      {
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        role: role,
+        clientType: formattedClientType,
+      },
+      { transaction }
     );
 
+    // Handle image upload
+    let imageUrl = "";
+    if (req.file) {
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+          folder: "products",
+          quality: "auto:good",
+          format: "webp",
+        });
+        imageUrl = uploadResult.secure_url;
+      } catch (uploadError) {
+        console.error("Cloudinary upload failed:", uploadError);
+        await transaction.rollback();
+        transactionCompleted = true;
+        return res.status(500).json({
+          success: false,
+          message: "Product image upload failed",
+          error:
+            process.env.NODE_ENV === "development"
+              ? uploadError.message
+              : undefined,
+        });
+      }
+    }
+
+    // Process product array
+    let processedProduct = product;
+    if (typeof product === "string") {
+      try {
+        processedProduct = JSON.parse(product);
+      } catch (e) {
+        processedProduct = product.split(",").map((item) => item.trim());
+      }
+    }
+
+    if (!Array.isArray(processedProduct)) {
+      processedProduct = [processedProduct];
+    }
+
+    // Create product
+    const newProduct = await Product.create(
+      {
+        companyName,
+        product: processedProduct,
+        capacity,
+        price,
+        location,
+        imageUrl: imageUrl, // Changed from 'image' to match model
+        userId: newUser.id,
+      },
+      { transaction }
+    );
+
+    // Assign to account manager if needed
+    if (clientType) {
+      const accountManagerRole = clientType.toLowerCase();
+      const accountManager = await User.findOne({
+        where: {
+          role: accountManagerRole,
+          clientType: null,
+        },
+        transaction,
+      });
+
+      if (accountManager) {
+        await accountManager.update(
+          {
+            managedClient: sequelize.fn(
+              "array_append",
+              sequelize.col("managedClient"),
+              newUser.id
+            ),
+          },
+          { transaction }
+        );
+      }
+    }
+
+    // Send welcome email (non-blocking for transaction)
+    try {
+      await sendEmail(
+        email,
+        `Welcome to Revas - ${companyName} Account`,
+        `Hello ${firstName},
+        
+        An account has been created for your company (${companyName}).
+
+        Account Details:
+        Email: ${email}
+        Temporary Password: ${randomPassword}
+
+        Product Registered:
+        - Product: ${processedProduct.join(", ")}
+        - Capacity: ${capacity}
+        - Price: ${price}
+        - Location: ${location}
+
+        Please login and:
+        1. Change your password
+        2. Complete your profile
+        3. Verify your contact details
+
+        Login here: ${process.env.FRONTEND_URL}/sign-in
+
+        Regards,
+        Reavas Team
+        Support: ${process.env.SUPPORT_EMAIL}`
+      );
+    } catch (err) {
+      console.error("Email sending failed:", err);
+      emailError = err;
+    }
+
+    // Commit transaction if everything succeeded
+    await transaction.commit();
+    transactionCompleted = true;
+
+    // Return success response
     return res.status(201).json({
+      success: true,
       message:
-        "User created and product registered successfully. Login details sent to email.",
-      user: { firstName, lastName, email, role },
-      product: newProduct,
+        "Account and product created successfully. Login details sent to email.",
+      user: {
+        id: newUser.id,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        email: newUser.email,
+        role: newUser.role,
+      },
+      product: {
+        id: newProduct.id,
+        companyName: newProduct.companyName,
+        product: newProduct.product,
+        price: newProduct.price,
+      },
+      emailSent: !emailError,
     });
   } catch (error) {
+    // Only rollback if transaction hasn't been committed
+    if (!transactionCompleted) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error("Error during rollback:", rollbackError);
+      }
+    }
+
     console.error("Error in createUserAndProduct:", error);
     return res.status(500).json({
-      message: "An error occurred while creating the user and product.",
+      success: false,
+      message: "Failed to create account",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      retrySuggestion: true,
     });
   }
 };
@@ -220,7 +354,7 @@ const updateProduct = async (req, res) => {
     let updates = req.body;
 
     // Handle product array if provided
-    if (updates.product && typeof updates.product === 'string') {
+    if (updates.product && typeof updates.product === "string") {
       try {
         updates.product = JSON.parse(updates.product);
       } catch (e) {
@@ -242,7 +376,7 @@ const updateProduct = async (req, res) => {
     await product.update(updates);
     res.status(200).json({
       message: "Product updated successfully",
-      product
+      product,
     });
   } catch (error) {
     console.error("Error updating product:", error);
@@ -266,6 +400,81 @@ const deleteProduct = async (req, res) => {
   }
 };
 
+//Get managed Users
+const getManagedUsers = async (req, res) => {
+  try {
+    const accountManager = await User.findByPk(req.user.id);
+
+    const managedUsers = await User.findAll({
+      where: {
+        id: { [Op.in]: accountManager.managedClient || [] },
+      },
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "clientType",
+        "hasRegisteredProduct",
+        "lastLogin",
+        "passwordChangedAt",
+      ],
+    });
+
+    // Categorize users
+    const analytics = {
+      totalUsers: managedUsers.length,
+      registeredUsers: managedUsers.filter((u) => u.passwordChangedAt).length,
+      unregisteredUsers: managedUsers.filter((u) => !u.passwordChangedAt)
+        .length,
+      byType: {
+        buyer: {
+          total: managedUsers.filter((u) => u.clientType === "Buyer").length,
+          registered: managedUsers.filter(
+            (u) => u.clientType === "Buyer" && u.passwordChangedAt
+          ).length,
+        },
+        supplier: {
+          total: managedUsers.filter((u) => u.clientType === "Supplier").length,
+          registered: managedUsers.filter(
+            (u) => u.clientType === "Supplier" && u.passwordChangedAt
+          ).length,
+        },
+      },
+    };
+
+    res.json(analytics);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch analytics" });
+  }
+};
+
+//Get Unregistered Users
+const getUnregisteredUsers = async (req, res) => {
+  try {
+    const accountManager = await User.findByPk(req.user.id);
+
+    const unregisteredUsers = await User.findAll({
+      where: {
+        id: { [Op.in]: accountManager.managedClient || [] },
+        passwordChangedAt: null,
+      },
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "clientType",
+        "createdAt",
+      ],
+    });
+
+    res.json(unregisteredUsers);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch unregistered users" });
+  }
+};
+
 module.exports = {
   registerProduct,
   getProductsByCompany,
@@ -273,5 +482,7 @@ module.exports = {
   getAllProducts,
   getProductById,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  getManagedUsers,
+  getUnregisteredUsers,
 };

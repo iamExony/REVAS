@@ -51,10 +51,26 @@ const User = sequelize.define("User", {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  resetCode: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  resetCodeExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
   hasRegisteredProduct: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     allowNull: false,
+  },
+  passwordChangedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  lastLogin: {
+    type: DataTypes.DATE,
+    allowNull: true
   },
   managedClient: {
     type: DataTypes.ARRAY(DataTypes.UUID),
@@ -62,7 +78,12 @@ const User = sequelize.define("User", {
     defaultValue: [],
   },
 });
-
+// In your User model definition
+User.beforeUpdate(async (user, options) => {
+  if (user.changed('password')) {
+    user.passwordChangedAt = new Date();
+  }
+});
 // Associations
 User.associate = (models) => {
   User.hasOne(models.Product, {

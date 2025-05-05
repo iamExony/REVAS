@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
 const { authMiddleware, authenticateRole } = require('../middleware/authMiddleware');
+const parseArrays = require("../middleware/arrayParserMiddleware");
 
 
 /**
@@ -77,16 +78,19 @@ router.patch('/api/orders/:id/status',
  *       properties:
  *         buyerId:
  *           type: string
- *           example: "27e7490b-2562-4c81-9f7c-a9dfde1212b2"
+ *           example: "cba11c5f-1608-4eb2-9659-823efddee3f1"
  *         supplierId:
  *           type: string
- *           example: "07d819aa-74ab-428e-bb42-94a87c141495"
+ *           example: "27ebe563-2037-4427-99d9-2f81a7256589"
  *         buyerName:
  *           type: string
- *           example: "EZE Flakes Inc."
- *         location:
+ *           example: "DANIEL Plastic Inc."
+ *         buyerLocation:
  *           type: string
  *           example: "Lagos, Nigeria"
+ *         supplierLocation:
+ *           type: string
+ *           example: "Abuja, Nigeria"
  *         product:
  *           type: string
  *           example:  "PET"
@@ -104,7 +108,7 @@ router.patch('/api/orders/:id/status',
  *           example: 50
  *         supplierName:
  *           type: string
- *           example: "DANIEL Flakes Inc."
+ *           example: "IFEANYI Plastic Inc."
  *         supplierPrice:
  *           type: integer
  *           example: 2000
@@ -140,7 +144,7 @@ router.patch('/api/orders/:id/status',
  *       400:
  *         description: Bad request
  */
-router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'supplier']), orderController.createOrder);
+router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'supplier']), parseArrays, orderController.createOrder);
 
 
 /**
@@ -161,7 +165,7 @@ router.post('/create-order', authMiddleware, authenticateRole(['buyer', 'supplie
  *       400:
  *         description: Bad request
  */
-router.post('/save-order', authMiddleware, authenticateRole(['buyer', 'supplier']), orderController.saveOrderDraft);
+router.post('/save-order', authMiddleware, authenticateRole(['buyer', 'supplier']), parseArrays, orderController.saveOrderDraft);
 
 /**
  * @swagger
@@ -219,7 +223,7 @@ router.get('/saved-orders', authMiddleware, authenticateRole(['buyer', 'supplier
  *       404:
  *         description: Order not found
  */
-router.put('/update-orders/:id', authMiddleware, authenticateRole(['buyer', 'supplier ']), orderController.updateOrder);
+router.put('/update-orders/:id', authMiddleware, authenticateRole(['buyer', 'supplier ']), parseArrays, orderController.updateOrder);
 
 /**
  * @swagger
@@ -241,4 +245,97 @@ router.put('/update-orders/:id', authMiddleware, authenticateRole(['buyer', 'sup
  */
 router.delete('/delete-orders/:id', authMiddleware, authenticateRole(['buyer', 'supplier']), orderController.deleteOrder);
 
+// Add these to your orderRouter.js
+
+/**
+ * @swagger
+ * /orders/search:
+ *   get:
+ *     summary: Search and filter orders
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: companyName
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: product
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [not_matched, matched, document_phase, processing, completed]
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Orders matching criteria
+ */
+router.get('/orders/search', authMiddleware, orderController.searchOrders);
+
+/**
+ * @swagger
+ * /orders/{id}/price:
+ *   patch:
+ *     summary: Update order price
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               pricePerTonne:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Price updated
+ */
+router.patch('/orders/:id/price', authMiddleware, orderController.updateOrderPrice);
+
+/**
+ * @swagger
+ * /orders/analytics:
+ *   get:
+ *     summary: Get order analytics
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analytics data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalOrders:
+ *                   type: integer
+ *                 pendingOrders:
+ *                   type: integer
+ *                 completedOrders:
+ *                   type: integer
+ */
+router.get('/orders/analytics', authMiddleware, orderController.getOrderAnalytics);
 module.exports = router;
