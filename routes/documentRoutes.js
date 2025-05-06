@@ -3,6 +3,7 @@ const router = express.Router();
 const documentController = require('../controllers/documentController');
 const { authMiddleware, authenticateRole } = require('../middleware/authMiddleware');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 
 
 // Configure multer for file uploads
@@ -121,19 +122,12 @@ router.post('/documents/orders/:id',
   authenticateRole(['buyer', 'supplier']),
   documentController.generateOrderDocument
 );
-
-// ======================
-// DOCUMENT DOWNLOAD/UPLOAD
-// ======================
-
-
-
 /**
  * @swagger
  * /documents/orders/{orderId}/upload:
  *   post:
- *     summary: Upload signed document
- *     description: Uploads a signed version of the document
+ *     summary: Upload signed document (Client)
+ *     description: Upload a signed version of the document (for clients only)
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
@@ -143,6 +137,7 @@ router.post('/documents/orders/:id',
  *         required: true
  *         schema:
  *           type: string
+ *         description: Order ID
  *     requestBody:
  *       required: true
  *       content:
@@ -163,29 +158,59 @@ router.post('/documents/orders/:id',
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
+ *                 signedUrl:
+ *                   type: string
+ *                   format: url
+ *                   example: "https://cloudinary.com/signed_document.pdf"
  *       400:
  *         description: Invalid file format or no file uploaded
  *       403:
- *         description: Forbidden
+ *         description: Forbidden (not authorized for this order)
+ *       404:
+ *         description: Order not found
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
 router.post('/documents/orders/:orderId/upload',
   authMiddleware,
   upload.single('signedDocument'),
   documentController.uploadSignedDocument
 );
-
-// ======================
-// DOCUMENT ACCESS
-// ======================
-
+// Client Documents Endpoint
 /**
  * @swagger
- * /documents/orders/{orderId}/signed:
+ * /documents/client:
  *   get:
- *     summary: Get signed document (User)
- *     description: Returns a temporary access URL for the signed document
+ *     summary: Get documents requiring client signature
+ *     description: Returns all documents that need to be signed by the authenticated client (Buyer/Supplier)
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of documents requiring signature
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/ClientDocument'
+ *       403:
+ *         description: Forbidden (account managers cannot access this endpoint)
+ *       500:
+ *         description: Server error
+ */
+router.get('/documents/client',
+  authMiddleware,
+  documentController.getClientDocuments
+);
+/**
+ * @swagger
+ * /documents/:orderId/regenerate-url:
+ *   get:
+ *     summary: Re-generate document URL (PDF)
+ *     description: Re-generate URL
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
@@ -195,31 +220,32 @@ router.post('/documents/orders/:orderId/upload',
  *         required: true
  *         schema:
  *           type: string
+ *         description: Order ID
  *     responses:
  *       200:
- *         description: Returns signed document URL
+ *         description: PDF document
  *         content:
- *           application/json:
+ *           application/pdf:
  *             schema:
- *               $ref: '#/components/schemas/DocumentResponse'
+ *               type: string
+ *               format: binary
  *       403:
- *         description: Forbidden - user not authorized
+ *         description: Forbidden (not authorized for this order)
  *       404:
- *         description: Signed document not found
+ *         description: Document not found
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
-router.get('/documents/orders/:orderId/signed',
+router.get('/documents/:orderId/regenerate-url',
   authMiddleware,
-  documentController.getUserSignedDocument
+  documentController.regenerateSignedUrl
 );
-
 /**
  * @swagger
- * /documents/admin/orders/{orderId}/signed:
+ * /documents/:orderId/document-status:
  *   get:
- *     summary: Get signed document (Admin)
- *     description: Admin access to signed documents
+ *     summary: Get signed document status
+ *     description: Get signed document status
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
@@ -229,80 +255,72 @@ router.get('/documents/orders/:orderId/signed',
  *         required: true
  *         schema:
  *           type: string
+ *         description: Order ID
  *     responses:
  *       200:
- *         description: Returns signed document URL
+ *         description: PDF document
  *         content:
- *           application/json:
+ *           application/pdf:
  *             schema:
- *               $ref: '#/components/schemas/DocumentResponse'
+ *               type: string
+ *               format: binary
  *       403:
- *         description: Forbidden - admin access required
+ *         description: Forbidden (not authorized for this order)
  *       404:
- *         description: Signed document not found
+ *         description: Document not found
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
-router.get('/documents/admin/orders/:orderId/signed',
+router.get('/documents/:orderId/document-status',
   authMiddleware,
-  authenticateRole(['admin']),
-  documentController.getSignedDocument
+  documentController.getSigningStatus
 );
 
-// Add this new route
 /**
  * @swagger
- * /documents/{documentId}/sign:
- *   post:
- *     summary: Sign a document
+ * /documents/signed:
+ *   get:
+ *     summary: Get signed documents
+ *     description: Returns all documents signed Account Managers
  *     tags: [Documents]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: documentId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               signatureData:
- *                 type: string
- *                 description: Base64 encoded signature image
- *               signaturePosition:
+ *     responses:
+ *       200:
+ *         description: List of signed documents
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
  *                 type: object
  *                 properties:
- *                   pageNumber:
- *                     type: number
- *                   x:
- *                     type: number
- *                   y:
- *                     type: number
- *                   width:
- *                     type: number
- *                   height:
- *                     type: number
- *               signerRole:
- *                 type: string
- *                 enum: [buyer, supplier]
- *     responses:
- *       200:
- *         description: Document signed successfully
- *       400:
- *         description: Invalid request
+ *                   id:
+ *                     type: string
+ *                   orderId:
+ *                     type: string
+ *                   type:
+ *                     type: string
+ *                   status:
+ *                     type: string
+ *                   signedAt:
+ *                     type: string
+ *                     format: date-time
+ *                   signedDocumentUrl:
+ *                     type: string
+ *                     format: url
+ *                   requiresCounterSignature:
+ *                     type: boolean
+ *                   fullySigned:
+ *                     type: boolean
  *       403:
- *         description: Not authorized
+ *         description: Forbidden
  *       500:
  *         description: Server error
  */
-router.post('/documents/:documentId/sign', 
+router.get('/documents/signed',
   authMiddleware,
-  documentController.signDocument
+  documentController.getSignedDocuments
 );
 
 // Error handling middleware

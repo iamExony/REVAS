@@ -57,7 +57,7 @@ const register = async (req, res) => {
 
     // Generate a JWT token
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: user.id, role: user.role, clientType: clientType },
       process.env.JWT_SECRET,
       {
         expiresIn: "1h",
@@ -127,7 +127,7 @@ const login = async (req, res) => {
     const isFirstLogin = !user.passwordChangedAt;
 
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: user.id, clientType: user.clientType, role: user.role },
       process.env.JWT_SECRET,
       {
         expiresIn: "24h",

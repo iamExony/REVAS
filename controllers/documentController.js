@@ -11,7 +11,7 @@ const crypto = require("crypto");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const axios = require("axios");
-
+const { Op } = require("sequelize");
 
 dotenv.config();
 
@@ -92,23 +92,6 @@ function getClauses(page, heading, fontBold, fontNormal, clauses) {
 }
 
 class DocumentController {
-  static verifyWebhookSignature(payload, receivedSignature, secret) {
-    const hmac = crypto.createHmac("sha256", secret);
-    hmac.update(payload);
-    const expectedSignature = hmac.digest("hex");
-
-    console.log("Signature Verification:", {
-      received: receivedSignature,
-      expected: expectedSignature,
-      match:
-        receivedSignature.toLowerCase() === expectedSignature.toLowerCase(),
-    });
-
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, "utf8"),
-      Buffer.from(receivedSignature, "utf8")
-    );
-  }
   /**
    * Generate sales order PDF
    */
@@ -116,10 +99,24 @@ class DocumentController {
     try {
       const { id } = req.params;
       const { user } = req;
-      const order = await Order.findByPk(id);
 
-      if (!order) return res.status(404).json({ message: "Order not found" });
-      // Authorization
+      // 1. Find order with relationships
+      const order = await Order.findByPk(id, {
+        include: [
+          { model: User, as: "buyer" },
+          { model: User, as: "supplier" },
+          {
+            model: Document,
+            as: "documents", // Make sure this matches your association
+          },
+        ],
+      });
+
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // 2. Authorization check
       const isSalesOrder = user.role === "buyer";
       const isPurchaseOrder = user.role === "supplier";
 
@@ -128,83 +125,161 @@ class DocumentController {
           message: "Access denied: Unauthorized role",
         });
       }
+
       if (order.status !== "matched") {
-        return res
-          .status(400)
-          .json({ message: "Order must be in 'matched' status" });
+        return res.status(400).json({
+          message: "Order must be in 'matched' status",
+        });
       }
 
-      // Generate appropriate document
+      // 3. Determine document type
       const docType = isSalesOrder ? "sales_order" : "purchase_order";
 
-      // Generate dynamic invoice number
-      const invoiceNumber = await generateInvoiceNumber(order, docType);
+      // 4. Check for existing document (more robust check)
+      const existingDoc = order.documents?.find((doc) => doc.type === docType);
 
+      if (existingDoc) {
+        return res.json({
+          message: `${docType.replace("_", " ")} already exists`,
+          document: {
+            id: existingDoc.id,
+            url: existingDoc.fileUrl,
+            type: existingDoc.type,
+            status: existingDoc.status,
+            generatedAt: existingDoc.createdAt,
+          },
+          isExisting: true,
+        });
+      }
+
+      // 5. Generate new document if none exists
+      const invoiceNumber = await generateInvoiceNumber(order, docType);
       const pdfBuffer = await DocumentController.generateOrderPDF(
         { ...order.get(), invoiceNumber },
         docType
       );
+
       const filename = `${docType}_${order.id}_${uuidv4()}.pdf`;
       const uploadResult = await DocumentController.uploadToStorage(
         pdfBuffer,
         filename,
         false
       );
-      // Ensure we're using the string URL
+
       const docUrl =
         typeof uploadResult === "object" ? uploadResult.url : uploadResult;
+
+      // 6. Create document record
       const documentRecord = await Document.create({
         orderId: id,
         type: docType,
         fileUrl: docUrl,
-        status: "pending_signatures",
+        status: "generated",
         generatedById: user.id,
-      });
-      await order.update({
+        buyerId: order.buyerId,
+        supplierId: order.supplierId,
         invoiceNumber,
-        status: "document_phase",
-        docUrl,
-        documentType: docType,
-        documentGeneratedAt: new Date(),
-        documentId: documentRecord.id,
       });
 
-      // Notifications
-      const notificationMessage = `${docType.replace(
-        "_",
-        " "
-      )} generated - please sign`;
-      await Notification.bulkCreate([
-        {
-          userId: order.buyerId,
-          orderId: order.id,
-          message: notificationMessage,
-          type: "document_generated",
-          metadata: { docType },
-        },
-        {
-          userId: order.supplierId,
-          orderId: order.id,
-          message: notificationMessage,
-          type: "document_generated",
-          metadata: { docType },
-        },
-      ]);
+      // 7. Check if both documents exist
+      const documentsComplete = await DocumentController.checkDocumentsComplete(
+        id
+      );
+
+      if (documentsComplete) {
+        await order.update({
+          invoiceNumber,
+          status: "document_phase",
+          docUrl,
+          documentType: docType,
+          documentGeneratedAt: new Date(),
+          documentId: documentRecord.id,
+        });
+
+        // Notifications
+        const notificationMessage = `${docType.replace(
+          "_",
+          " "
+        )} generated - please sign`;
+        await Notification.bulkCreate([
+          {
+            userId: order.buyerId,
+            orderId: order.id,
+            message: notificationMessage,
+            type: "document_generated",
+            metadata: {
+              docType,
+              documentUrl: docUrl,
+              documentId: documentRecord.id,
+            },
+          },
+          {
+            userId: order.supplierId,
+            orderId: order.id,
+            message: notificationMessage,
+            type: "document_generated",
+            metadata: {
+              docType,
+              documentUrl: docUrl,
+              documentId: documentRecord.id,
+            },
+          },
+        ]);
+      }
 
       res.json({
         message: `${docType.replace("_", " ")} generated successfully`,
+        documentsComplete,
         docUrl,
+        isExisting: false,
       });
     } catch (error) {
-      console.error("Sales order generation error:", error);
-      res.status(500).json({ error: error.message });
+      console.error("Document generation error:", {
+        error: error.message,
+        orderId: id,
+        userId: user?.id,
+      });
+      res.status(500).json({
+        error: "Failed to generate document",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
     }
   }
+  static async checkDocumentsComplete(orderId) {
+    const documents = await Document.findAll({
+      where: { orderId },
+      attributes: ["type"],
+    });
 
+    const hasSalesOrder = documents.some((doc) => doc.type === "sales_order");
+    const hasPurchaseOrder = documents.some(
+      (doc) => doc.type === "purchase_order"
+    );
+
+    return hasSalesOrder && hasPurchaseOrder;
+  }
   /**
    * Generate PDF document
    */
   static async generateOrderPDF(order, type) {
+    // At the start of the method to prevent spam
+    const recentAttempts = await Document.count({
+      where: {
+        orderId: id,
+        generatedById: user.id,
+        createdAt: {
+          [Op.gt]: new Date(Date.now() - 5 * 60 * 1000), // Last 5 minutes
+        },
+      },
+    });
+
+    if (recentAttempts > 3) {
+      return res.status(429).json({
+        error: "Too many attempts",
+        message: "Please wait before generating again",
+      });
+    }
     try {
       const pdfDoc = await PDFDocument.create();
       const page1 = pdfDoc.addPage([612, 792]); // A4 (portrait)
@@ -854,521 +929,396 @@ class DocumentController {
     });
   }
 
-  static async downloadDocument(req, res) {
-    let document;
-
+  // Upload signed document (for client users)
+   static async uploadSignedDocument(req, res) {
+    const { orderId } = req.params;
+    const { user } = req;
     try {
-      const { orderId } = req.params;
-      const { user } = req;
-
-      // 1. Validate document exists in database
-      document = await Document.findOne({
-        where: { orderId },
-        include: [{ model: Order, as: "order", required: true }], // Eager load the order
-      });
-
-      if (!document) {
-        return res.status(404).json({ error: "Document not found" });
-      }
-
-      // 2. Verify order exists and has required fields
-      if (
-        !document.Order ||
-        !document.Order.buyerId ||
-        !document.Order.supplierId
-      ) {
-        return res.status(400).json({ error: "Invalid order data" });
-      }
-
-      // 3. Check user permissions
-      const isAuthorized =
-        user.id === document.Order.buyerId ||
-        user.id === document.Order.supplierId;
-      if (!isAuthorized) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-
-      if (!document.fileUrl) {
-        return res.status(404).json({ error: "Document URL missing" });
-      }
-
-      // 2. Verify user permissions - now safe because order is loaded
-      if (
-        ![document.Order.buyerId, document.Order.supplierId].includes(user.id)
-      ) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-
-      // 3. Extract public ID with multiple fallback methods
-      let publicId;
-      try {
-        // Method 1: URL parsing
-        const urlObj = new URL(document.fileUrl);
-        publicId = urlObj.pathname
-          .split("/")
-          .slice(urlObj.pathname.includes("raw/upload") ? 4 : 2)
-          .join("/")
-          .replace(".pdf", "");
-      } catch (e) {
-        // Method 2: Simple split fallback
-        const parts = document.fileUrl.split("/upload/");
-        publicId = parts[1] ? parts[1].replace(".pdf", "") : null;
-      }
-
-      if (!publicId) {
-        throw new Error("Could not extract public ID from URL");
-      }
-
-      // 4. Generate secure download URL
-      const downloadUrl = cloudinary.url(publicId, {
-        resource_type: "raw",
-        secure: true,
-        sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 86400,
-        flags: "attachment",
-        type: "authenticated",
-      });
-
-      // 5. Verify file exists on Cloudinary
-      try {
-        await cloudinary.api.resource(publicId, {
-          resource_type: "raw",
-          type: "authenticated",
-        });
-      } catch (err) {
-        if (err.message.includes("404")) {
-          throw new Error(`Document not found on Cloudinary: ${publicId}`);
-        }
-        throw err;
-      }
-
-      // 6. Create download notification
-      await Notification.create({
-        userId: user.id,
-        orderId,
-        message: `Downloaded ${document.type.replace("_", " ")} document`,
-        type: "document_downloaded",
-      });
-
-      // 7. Stream the file
-      const response = await axios.get(downloadUrl, {
-        responseType: "stream",
-        maxRedirects: 0,
-      });
-
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${document.type}_${orderId}.pdf"`
-      );
-      response.data.pipe(res);
-    } catch (error) {
-      console.error("Download error:", {
-        message: error.message,
-        documentUrl: document?.fileUrl,
-        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-      });
-
-      const statusCode = error.message.includes("not found") ? 404 : 500;
-      res.status(statusCode).json({
-        error: "Download failed",
-        details:
-          process.env.NODE_ENV === "development" ? error.message : undefined,
-      });
-    }
-  }
-
-  static async uploadSignedDocument(req, res) {
-    try {
-      const { orderId } = req.params;
-      const { user } = req;
-
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      if (!req.file.mimetype.includes("pdf")) {
-        return res.status(400).json({ error: "Only PDF files are allowed" });
+      // Get order with associated documents
+      const order = await Order.findByPk(orderId, {
+        include: [
+          {
+            model: Document,
+            as: "documents",
+            where: {
+              type: ["sales_order", "purchase_order"],
+            },
+            required: false,
+          },
+        ],
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
       }
 
-      const order = await Order.findByPk(orderId);
+      // Verify user authorization
       if (![order.buyerId, order.supplierId].includes(user.id)) {
         return res.status(403).json({ error: "Not authorized" });
       }
 
-      const filename = `signed_docs/${orderId}_${Date.now()}`;
-      const { public_id } = await DocumentController.uploadToStorage(
-        req.file.buffer,
-        filename,
-        true // Mark as private
+      // Find document matching user's role
+      const documentToSign = order.documents.find(
+        (doc) =>
+          (user.clientType === "Buyer" && doc.type === "sales_order") ||
+          (user.clientType === "Supplier" && doc.type === "purchase_order")
       );
 
-      await Document.update(
-        {
-          signingUrl: public_id,
-          status: "fully_signed",
-          signedById: user.id,
-          signedAt: new Date(),
-        },
-        { where: { orderId } }
-      );
-
-      const otherPartyId =
-        user.id === order.buyerId ? order.supplierId : order.buyerId;
-
-      await Notification.bulkCreate([
-        {
-          userId: user.id,
-          orderId,
-          message: "You uploaded a signed document",
-          type: "document_uploaded",
-        },
-        {
-          userId: otherPartyId,
-          orderId,
-          message: `${user.name} uploaded a signed document`,
-          type: "document_uploaded",
-        },
-      ]);
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
-    }
-  }
-// Add to the top with other imports
-
-  static async signDocument(req, res) {
-    try {
-      const { documentId } = req.params;
-      const { user } = req;
-      const { signatureData, signaturePosition, signerRole } = req.body;
-
-      // Validate input
-      if (!signatureData || !signaturePosition || !signerRole) {
-        return res.status(400).json({ error: "Missing required fields" });
+      if (!documentToSign) {
+        return res.status(404).json({
+          error: "No document available for you to sign",
+        });
       }
 
-      // Get document and associated order
-      const document = await Document.findByPk(documentId, {
-        include: [{ model: Order, as: 'order' }]
+      const filename = `signed_docs/${orderId}_${Date.now()}`;
+
+      // Upload with private access
+      const uploadResult = await new Promise((resolve, reject) => {
+        cloudinary.uploader
+          .upload_stream(
+            {
+              resource_type: "raw",
+              public_id: filename,
+              format: "pdf",
+              type: "private",
+              invalidate: true,
+            },
+            (error, result) => {
+              if (error) {
+                console.error("Upload error:", error);
+                reject(new Error("Failed to upload document"));
+              } else {
+                const signedUrl = cloudinary.url(result.public_id, {
+                  resource_type: "raw",
+                  secure: true,
+                  sign_url: true,
+                  expires_at: Math.floor(Date.now() / 1000) + 604800,
+                  type: "private",
+                  transformation: [{ flags: "attachment" }],
+                });
+                resolve({
+                  url: signedUrl,
+                  public_id: result.public_id,
+                });
+              }
+            }
+          )
+          .end(req.file.buffer);
       });
 
-      if (!document) {
-        return res.status(404).json({ error: "Document not found" });
-      }
-
-      // Authorization check
-      if (
-        (signerRole === 'buyer' && user.id !== document.order.buyerId) ||
-        (signerRole === 'supplier' && user.id !== document.order.supplierId)
-      ) {
-        return res.status(403).json({ error: "Not authorized to sign this document" });
-      }
-
-      // Check document status
-      if (document.status !== 'pending_signatures' && 
-          document.status !== 'partially_signed') {
-        return res.status(400).json({ error: "Document not ready for signing" });
-      }
-
-      // Process the PDF
-      const signedPdfBuffer = await DocumentController.addSignatureToPdf(
-        document.fileUrl,
-        signatureData,
-        signaturePosition
-      );
-
-      // Upload signed version
-      const filename = `signed_${documentId}_${Date.now()}.pdf`;
-      const uploadResult = await DocumentController.uploadToStorage(
-        signedPdfBuffer,
-        filename,
-        false
-      );
-
-      // Update document record
+      // Update document signing status
+      const isBuyer = user.clientType === "Buyer";
       const updateData = {
-        fileUrl: uploadResult.url,
-        status: this.getUpdatedStatus(document, signerRole),
-        metadata: {
-          ...(document.metadata || {}),
-          signatures: [
-            ...(document.metadata?.signatures || []),
-            {
-              signerRole,
-              signedAt: new Date().toISOString(),
-              signedById: user.id
-            }
-          ]
-        }
+        [isBuyer ? "signedByBuyerAt" : "signedBySupplierAt"]: new Date(),
+        uploadedAt: new Date(),
+        [isBuyer ? "buyerSignedUrl" : "supplierSignedUrl"]: uploadResult.url,
+        status: "partially_signed",
       };
 
-      // Set appropriate signedAt field
-      if (signerRole === 'buyer') {
-        updateData.signedByBuyerAt = new Date();
+      await documentToSign.update(updateData);
+
+      // Get fresh copy of the document to check current state
+      const updatedDoc = await Document.findByPk(documentToSign.id);
+
+      // Check if both parties have signed
+      const isFullySigned =
+        updatedDoc.signedByBuyerAt && updatedDoc.signedBySupplierAt;
+
+      if (isFullySigned) {
+        await updatedDoc.update({ status: "fully_signed" });
+        await order.update({ status: "processing" });
+
+        // Notify both parties
+        await Notification.bulkCreate([
+          {
+            userId: order.buyerId,
+            orderId,
+            message: "Document fully signed - order is now processing",
+            type: "document_fully_signed",
+          },
+          {
+            userId: order.supplierId,
+            orderId,
+            message: "Document fully signed - order is now processing",
+            type: "document_fully_signed",
+          },
+        ]);
       } else {
-        updateData.signedBySupplierAt = new Date();
-      }
-
-      await document.update(updateData);
-
-      // Notify other party if partially signed
-      if (updateData.status === 'partially_signed') {
-        const otherPartyId = signerRole === 'buyer' 
-          ? document.order.supplierId 
-          : document.order.buyerId;
-        
+        // Notify the other party
+        const otherPartyId = isBuyer ? order.supplierId : order.buyerId;
         await Notification.create({
           userId: otherPartyId,
-          orderId: document.orderId,
-          message: `Document requires your signature (${document.type})`,
-          type: "signature_required"
+          orderId,
+          message: `${user.clientType} has signed - your signature is now required`,
+          type: "signature_required",
         });
       }
 
       res.json({
         success: true,
         signedUrl: uploadResult.url,
-        status: updateData.status
+        status: isFullySigned ? "fully_signed" : "partially_signed",
+        orderStatus: isFullySigned ? "processing" : order.status,
+        message: isFullySigned
+          ? "Document fully signed - order moved to processing"
+          : "Document signed successfully - waiting for other party",
       });
-
     } catch (error) {
-      console.error("Signing error:", error);
-      res.status(500).json({ error: "Document signing failed" });
-    }
-  }
-
-  /**
-   * Helper to determine new document status
-   */
-  static getUpdatedStatus(document, signerRole) {
-    if (document.status === 'fully_signed') return 'fully_signed';
-    
-    if (signerRole === 'buyer') {
-      return document.signedBySupplierAt ? 'fully_signed' : 'partially_signed';
-    } else {
-      return document.signedByBuyerAt ? 'fully_signed' : 'partially_signed';
-    }
-  }
-
-  /**
-   * Add signature to PDF
-   */
-  static async addSignatureToPdf(pdfUrl, signatureData, position) {
-    try {
-      // Fetch the PDF
-      const response = await axios.get(pdfUrl, { responseType: 'arraybuffer' });
-      const pdfBytes = response.data;
-
-      // Load the PDF
-      const pdfDoc = await PDFDocument.load(pdfBytes);
-      pdfDoc.registerFontkit(fontkit);
-
-      // Get the page
-      const pages = pdfDoc.getPages();
-      const page = pages[position.pageNumber - 1]; // Convert to 0-based index
-
-      // Convert base64 signature to PNG image
-      const signatureImage = await pdfDoc.embedPng(
-        signatureData.replace(/^data:image\/\w+;base64,/, '')
-      );
-
-      // Draw the signature
-      page.drawImage(signatureImage, {
-        x: position.x,
-        y: position.y,
-        width: position.width,
-        height: position.height,
-        rotate: degrees(0),
-        opacity: 1
+      console.error("Upload error:", {
+        message: error.message,
+        orderId,
+        userId: user?.id,
+        stack: error.stack,
       });
-
-      // Flatten the PDF
-      const flattenedBytes = await pdfDoc.save();
-
-      return Buffer.from(flattenedBytes);
-    } catch (error) {
-      console.error("PDF processing error:", error);
-      throw new Error("Failed to add signature to PDF");
+      res.status(500).json({
+        error: "Upload failed",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
     }
   }
 
-  // Add these methods to your DocumentController
-
-// View Document (returns PDF for inline viewing)
-static async viewDocument(req, res) {
-  try {
-    const { orderId } = req.params;
-    const { user } = req;
-
-    // Verify permissions
-    const order = await Order.findByPk(orderId);
-    if (![order.buyerId, order.supplierId].includes(user.id)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
-    const document = await Document.findOne({ where: { orderId } });
-    if (!document) return res.status(404).json({ error: "Document not found" });
-
-    // Fetch PDF from Cloudinary
-    const response = await axios.get(document.fileUrl, {
-      responseType: 'arraybuffer'
-    });
-
-    // Return as inline PDF
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
-    res.send(response.data);
-  } catch (error) {
-    console.error('View error:', error);
-    res.status(500).json({ error: 'Failed to view document' });
-  }
-}
-
-// Download Document (triggered download)
-static async downloadDocument(req, res) {
-  try {
-    const { orderId } = req.params;
-    const { user } = req;
-
-    // Verify permissions
-    const order = await Order.findByPk(orderId);
-    if (![order.buyerId, order.supplierId].includes(user.id)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
-    const document = await Document.findOne({ where: { orderId } });
-    if (!document) return res.status(404).json({ error: "Document not found" });
-
-    // Create download record
-    await DocumentDownload.create({
-      documentId: document.id,
-      userId: user.id,
-      downloadedAt: new Date()
-    });
-
-    // Trigger download
-    const response = await axios.get(document.fileUrl, {
-      responseType: 'arraybuffer'
-    });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${document.type}_${orderId}.pdf"`);
-    res.send(response.data);
-  } catch (error) {
-    console.error('Download error:', error);
-    res.status(500).json({ error: 'Download failed' });
-  }
-}
-
-// Sign Document (initiates signing process)
-static async initiateSigning(req, res) {
-  try {
-    const { orderId } = req.params;
-    const { user } = req;
-
-    const order = await Order.findByPk(orderId);
-    const document = await Document.findOne({ where: { orderId } });
-
-    // Verify permissions and document status
-    if (![order.buyerId, order.supplierId].includes(user.id)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-    if (document.status !== 'generated') {
-      return res.status(400).json({ error: "Document not ready for signing" });
-    }
-
-    // Update document status
-    await document.update({ status: 'pending_signatures' });
-
-    // Create signing request
-    const signingRequest = await SigningRequest.create({
-      documentId: document.id,
-      userId: user.id,
-      status: 'pending'
-    });
-
-    // Notify other party
-    const otherPartyId = user.id === order.buyerId 
-      ? order.supplierId 
-      : order.buyerId;
-
-    await Notification.create({
-      userId: otherPartyId,
-      orderId,
-      message: `Document requires your signature (${document.type})`,
-      type: "signature_required"
-    });
-
-    res.json({ 
-      success: true,
-      message: "Signing process initiated",
-      signingRequestId: signingRequest.id
-    });
-  } catch (error) {
-    console.error('Signing error:', error);
-    res.status(500).json({ error: 'Failed to initiate signing' });
-  }
-}
-  /**
-   * Admin-only document access
-   */
-  static async getSignedDocument(req, res) {
+  static async getSigningStatus(req, res) {
     try {
       const { orderId } = req.params;
-
-      if (req.user.role !== "admin") {
-        return res.status(403).json({ error: "Admin access required" });
-      }
-
-      const document = await Document.findOne({ where: { orderId } });
-      if (!document?.signingUrl) {
-        return res.status(404).json({ error: "Signed document not found" });
-      }
-
-      const signedUrl = cloudinary.url(document.signingUrl, {
-        resource_type: "raw",
-        secure: true,
-        sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 300, // 5 minute expiry
+      const document = await Document.findOne({
+        where: { orderId },
+        attributes: ["status", "signedByBuyerAt", "signedBySupplierAt"],
       });
 
-      res.json({ url: signedUrl });
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      res.json({
+        status: document.status,
+        signedByBuyer: !!document.signedByBuyerAt,
+        signedBySupplier: !!document.signedBySupplierAt,
+      });
     } catch (error) {
-      console.error("Access error:", error);
-      res.status(500).json({ error: "Document access failed" });
+      res.status(500).json({ error: "Failed to get status" });
     }
   }
-  static async getUserSignedDocument(req, res) {
+  // View document (for both account managers and clients)
+  static async getClientDocuments(req, res) {
     try {
-      const { orderId } = req.params;
       const { user } = req;
 
-      const order = await Order.findByPk(orderId);
-      if (![order.buyerId, order.supplierId].includes(user.id)) {
-        return res.status(403).json({ error: "Not authorized" });
+      // 1. Validate user role and clientType
+      if (!["Supplier", "Buyer"].includes(user.clientType)) {
+        return res.status(403).json({
+          error: "Access denied",
+          message: "Only Supplier or Buyer clients can access documents",
+        });
       }
 
+      // 2. Determine document parameters
+      const docType =
+        user.clientType === "Supplier" ? "purchase_order" : "sales_order";
+
+      const userField =
+        user.clientType === "Supplier" ? "supplierId" : "buyerId";
+
+      // 3. Fetch documents with optimized query
+      const documents = await Document.findAll({
+        where: {
+          [userField]: user.id,
+          type: docType,
+        },
+        include: [
+          {
+            model: Order,
+            as: "order",
+            attributes: ["id", "status", "createdAt"],
+            required: true,
+          },
+        ],
+        order: [
+          ["order", "createdAt", "DESC"], // Newest orders first
+          ["createdAt", "DESC"], // Then newest documents
+        ],
+        limit: 100, // Prevent over-fetching
+      });
+
+      // 4. Transform response
+      const response = documents.map((doc) => ({
+        id: doc.id,
+        orderId: doc.order.id,
+        type: doc.type,
+        fileUrl: doc.fileUrl,
+        status: doc.status,
+        orderStatus: doc.order.status,
+        generatedAt: doc.createdAt,
+        requiresSignature: !doc.signedById,
+        downloadUrl: `${req.protocol}://${req.get("host")}/documents/${
+          doc.id
+        }/download`,
+      }));
+
+      // 5. Add helpful headers
+      res.set({
+        "X-Total-Count": documents.length,
+        "X-Filtered-By": `${userField}=${user.id}, type=${docType}`,
+      });
+
+      res.json(response);
+    } catch (error) {
+      console.error("Document fetch error:", {
+        userId: req.user?.id,
+        error: error.message,
+        stack: error.stack,
+      });
+
+      res.status(500).json({
+        error: "Failed to fetch documents",
+        ...(process.env.NODE_ENV === "development" && {
+          details: error.message,
+          stack: error.stack,
+        }),
+      });
+    }
+  }
+  static async regenerateSignedUrl(req, res) {
+    try {
+      const { orderId } = req.params;
       const document = await Document.findOne({ where: { orderId } });
-      if (!document?.signingUrl) {
-        return res.status(404).json({ error: "No signed document found" });
+
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
       }
 
-      const signedUrl = cloudinary.url(document.signingUrl, {
+      const publicId = document.signingUrl
+        .split("/")
+        .slice(-1)[0]
+        .replace(".pdf", "");
+      const newUrl = cloudinary.url(publicId, {
         resource_type: "raw",
         secure: true,
         sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 300, // 5 min expiry
+        expires_at: Math.floor(Date.now() / 1000) + 604800, // 7 days
+        type: "private",
       });
 
-      res.json({ url: signedUrl });
+      await document.update({ signingUrl: newUrl });
+      res.json({ url: newUrl });
     } catch (error) {
-      console.error("Access error:", error);
-      res.status(500).json({ error: "Document access failed" });
+      res.status(500).json({ error: "Failed to regenerate URL" });
     }
   }
+  /**
+ * Get signed documents for client
+ */
+/**
+ * Get signed documents for account managers
+ */
+
+static async getSignedDocuments(req, res) {
+  const { user } = req;
+  try {
+    // Validate user is an account manager
+    if (!["buyer", "supplier"].includes(user.role)) {
+      return res.status(403).json({
+        error: "Access denied",
+        message: "Only account managers can access this endpoint",
+      });
+    }
+
+    console.log(`Fetching documents for ${user.role} account manager (ID: ${user.id})`);
+
+    // Build query conditions based on role
+    const whereConditions = {
+      status: { [Op.in]: ["partially_signed", "fully_signed"] }
+    };
+
+    // For buyer account managers, get sales orders they've signed
+    if (user.role === "buyer") {
+      whereConditions.type = "sales_order";
+      whereConditions.signedByBuyerAt = { [Op.not]: null };
+    } 
+    // For supplier account managers, get purchase orders they've signed
+    else if (user.role === "supplier") {
+      whereConditions.type = "purchase_order";
+      whereConditions.signedBySupplierAt = { [Op.not]: null };
+    }
+
+    console.log("Query conditions:", JSON.stringify(whereConditions, null, 2));
+
+    // Fetch documents with related order and counterparty info
+    const documents = await Document.findAll({
+      where: whereConditions,
+      include: [
+        {
+          model: Order,
+          as: "order",
+          attributes: ["id", "status", "product", "capacity", "pricePerTonne"],
+          required: true,
+          where: {
+            // Match orders where user is either buyer or supplier
+            [user.role === "buyer" ? "buyerAccountManagerId" : "supplierAccountManagerId"]: user.id
+          }
+        },
+        {
+          model: User,
+          as: user.role === "buyer" ? "supplier" : "buyer",
+          attributes: ["id", "firstName", "lastName"],
+          required: false
+        }
+      ],
+      order: [["updatedAt", "DESC"]],
+      limit: 100
+    });
+
+    console.log(`Found ${documents.length} documents matching criteria`);
+
+    // Transform response
+    const response = documents.map((doc) => {
+      const isSupplierDoc = doc.type === "purchase_order";
+      const signedAt = isSupplierDoc ? doc.signedBySupplierAt : doc.signedByBuyerAt;
+      const signedUrl = isSupplierDoc ? doc.supplierSignedUrl : doc.buyerSignedUrl;
+      const counterparty = isSupplierDoc ? doc.buyer : doc.supplier;
+
+      return {
+        id: doc.id,
+        orderId: doc.order.id,
+        type: doc.type,
+        status: doc.status,
+        orderStatus: doc.order.status,
+        signedAt,
+        signedDocumentUrl: signedUrl,
+        orderDetails: {
+          product: doc.order.product,
+          quantity: doc.order.capacity,
+          price: doc.order.pricePerTonne,
+          paymentTerms: doc.order.paymentTerms || 'N/A'
+        },
+        counterparty: counterparty ? {
+          id: counterparty.id,
+          name: `${counterparty.firstName} ${counterparty.lastName}`,
+          company: counterparty.companyName
+        } : null,
+        requiresCounterSignature: doc.status === "partially_signed",
+        fullySigned: doc.status === "fully_signed",
+        lastUpdated: doc.updatedAt
+      };
+    });
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error fetching signed documents:", {
+      userId: user.id,
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      error: "Failed to fetch signed documents",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+}
 }
 
 module.exports = DocumentController;

@@ -2,7 +2,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../config/database');
 
-const DocumentDownload = sequelize.define('Document', {
+const DocumentDownload = sequelize.define('DocumentDownload', {
   id: {
     type: DataTypes.UUID,
     defaultValue: DataTypes.UUIDV4,

@@ -1,6 +1,34 @@
 const nodemailer = require('nodemailer');
+require('dotenv').config();
+
 
 const sendEmail = async (to, subject, text) => {
+   const transporter = nodemailer.createTransport({
+     host: "smtp.zoho.com",
+     port: 465,
+     secure: true, // use SSL
+     auth: {
+       user: process.env.EMAIL_USER, // systems@userevas.com
+       pass: process.env.EMAIL_APP_PASSWORD, // your Zoho app password
+     },
+   });
+
+   const mailOptions = {
+     from: process.env.EMAIL_USER,
+     to,
+     subject,
+     text
+   };
+
+   try {
+     await transporter.sendMail(mailOptions);
+     console.log('Email sent to:', to);
+   } catch (error) {
+     console.error('Email sending failed:', error);
+   }
+};
+
+/* const sendEmail = async (to, subject, text) => {
    const transporter = nodemailer.createTransport({
      service: 'gmail', // Use your email service (e.g., Gmail, Outlook)
      host: "smtp.ethereal.email",
@@ -8,7 +36,7 @@ const sendEmail = async (to, subject, text) => {
      secure: false, // true for port 465, false for other ports
      auth: {
        user: process.env.EMAIL_USER, // Your email address
-       pass: process.env.EMAIL_APP_PASSWORD/* .replace(/^"|"$/g, '')  */
+       pass: process.env.EMAIL_APP_PASSWORD/* .replace(/^"|"$/g, '')  
      },
    });
 
@@ -25,6 +53,6 @@ const sendEmail = async (to, subject, text) => {
     } catch (error) {
         console.error('Email sending failed:', error);
     }
-};
+}; */
 
 module.exports = { sendEmail };

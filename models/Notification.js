@@ -30,6 +30,8 @@ const Notification = sequelize.define('Notification', {
       'order_completed',      // Final completion
       'document_downloaded',      // Final completion
       'document_uploaded',      // Final completion
+      'document_fully_signed',      // Final completion
+      'signature_required',      // Final completion
 
       'error',
     ),
