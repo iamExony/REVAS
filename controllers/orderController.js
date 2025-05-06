@@ -2,6 +2,7 @@ const { Order, Notification, User } = require("../models");
 const { Op } = require("sequelize");
 const { sendEmail } = require("../utils/emailService");
 const sequelize = require("../config/database");
+const Document = require("../models/Document");
 
 // ================== CREATE ORDERS  ================== //
 exports.createOrder = async (req, res) => {
@@ -196,8 +197,24 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
+    if (req.body.status === 'matched') {
+      req.body.matchedById = req.user.id;
+    }
+
     const oldStatus = order.status;
-    await order.update({ status: req.body.status });
+    await order.update({ 
+      status: req.body.status,
+      matchedById: req.body.matchedById 
+    });
+
+    // Include matchedBy details in the response
+    const matchedByUser = req.body.status === 'matched' 
+      ? await User.findByPk(req.user.id, {
+          attributes: ['id', 'firstName', 'lastName', 'email']
+        })
+      : null;
+
+    
 
     // Determine who should be notified
     const notificationRecipients = [];
@@ -249,6 +266,11 @@ exports.updateOrderStatus = async (req, res) => {
     // Prepare response with all manager details
     const response = {
       ...order.toJSON(),
+      matchedBy: matchedByUser ? {
+        id: matchedByUser.id,
+        name: `${matchedByUser.firstName} ${matchedByUser.lastName}`,
+        email: matchedByUser.email
+      } : null,
       notifications: {
         sentTo: notificationRecipients.map(r => r.role),
         count: notificationRecipients.length
@@ -340,6 +362,18 @@ exports.getDashboardOrders = async (req, res) => {
             attributes: ["id", "firstName", "lastName", "email", "role"],
           },
           {
+            model: User,
+            as: 'matchedBy',
+            attributes: ['id', 'firstName', 'lastName', 'email'],
+            required: false
+          },
+          {
+            model: Document,
+            as: 'documents',
+            attributes: ['id', 'status'],
+            required: false
+          },
+          {
             model: Notification,
             as: "notifications",
             attributes: ["id", "type", "message", "createdAt"],
@@ -361,6 +395,20 @@ exports.getDashboardOrders = async (req, res) => {
 
     const totalPages = Math.ceil(totalOrders / limit);
 
+    const formattedOrders = orders.map(order => ({
+      ...order.toJSON(),
+      matchedBy: order.matchedBy ? {
+        id: order.matchedBy.id,
+        name: `${order.matchedBy.firstName} ${order.matchedBy.lastName}`,
+        email: order.matchedBy.email
+      } : null,
+      documents: {
+        id: order.documents.id,
+        status: order.documents.status
+      }
+    }));
+
+
     // Enhanced response format
     res.status(200).json({
       success: true,
@@ -377,12 +425,7 @@ exports.getDashboardOrders = async (req, res) => {
         product: product || 'any',
         dateRange: startDate && endDate ? `${startDate} to ${endDate}` : 'all'
       },
-      data: orders.map(order => ({
-        ...order.toJSON(),
-        // Add computed fields if needed
-        isActionRequired: order.status === 'document_phase' && 
-                         order.notifications?.some(n => n.type === 'action_required')
-      }))
+      data: formattedOrders 
     });
 
   } catch (err) {

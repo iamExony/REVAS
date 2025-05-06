@@ -85,6 +85,11 @@ const Order = sequelize.define("Order", {
   supplierAccountManagerId: {
     type: DataTypes.UUID,
     references: { model: "Users", key: "id" },
+  },
+  matchedById: {
+    type: DataTypes.UUID,
+    references: { model: "Users", key: "id" },
+    allowNull: true
   }
 });
 
@@ -99,6 +104,11 @@ Order.associate = (models) => {
   Order.belongsTo(models.User, {
     as: "supplier",
     foreignKey: "supplierId",
+    hooks: true
+  });
+  Order.belongsTo(models.User, {
+    as: "matchedBy",
+    foreignKey: "matchedById",
     hooks: true
   });
 

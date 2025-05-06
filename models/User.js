@@ -127,6 +127,10 @@ User.associate = (models) => {
       foreignKey: "signedById",
       as: "signedDocuments",
     }); 
+    User.hasMany(models.Order, {
+      as: "matchedOrders",
+      foreignKey: "matchedById"
+    });
 };
 
 module.exports = User;

@@ -27,7 +27,7 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS,
+  /* origin: process.env.ALLOWED_ORIGINS, */
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Content-Disposition'] // Important for downloads

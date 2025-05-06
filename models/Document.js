@@ -20,12 +20,6 @@ const Document = sequelize.define('Document', {
     type: DataTypes.STRING,
     allowNull: false
   },
-  docuSealId: {  // Changed from docusignEnvelopeId
-    type: DataTypes.STRING,
-    allowNull: true,
-    comment: 'DocuSeal submission ID',
-    unique: true 
-  },
   signingUrl: {
     type: DataTypes.STRING,
     allowNull: true,

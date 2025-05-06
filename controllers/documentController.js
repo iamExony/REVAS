@@ -854,14 +854,6 @@ class DocumentController {
     });
   }
 
-  /**
-   * Download document endpoint
-   */
-
-  /**
-   * Secure document upload with private storage
-   */
-
   static async downloadDocument(req, res) {
     let document;
 
@@ -932,7 +924,7 @@ class DocumentController {
         resource_type: "raw",
         secure: true,
         sign_url: true,
-        expires_at: Math.floor(Date.now() / 1000) + 300,
+        expires_at: Math.floor(Date.now() / 1000) + 86400,
         flags: "attachment",
         type: "authenticated",
       });
@@ -1047,13 +1039,6 @@ class DocumentController {
   }
 // Add to the top with other imports
 
-
-
-  // ... (keep existing methods)
-
-  /**
-   * Handle in-app document signing
-   */
   static async signDocument(req, res) {
     try {
       const { documentId } = req.params;
@@ -1210,6 +1195,123 @@ class DocumentController {
     }
   }
 
+  // Add these methods to your DocumentController
+
+// View Document (returns PDF for inline viewing)
+static async viewDocument(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { user } = req;
+
+    // Verify permissions
+    const order = await Order.findByPk(orderId);
+    if (![order.buyerId, order.supplierId].includes(user.id)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const document = await Document.findOne({ where: { orderId } });
+    if (!document) return res.status(404).json({ error: "Document not found" });
+
+    // Fetch PDF from Cloudinary
+    const response = await axios.get(document.fileUrl, {
+      responseType: 'arraybuffer'
+    });
+
+    // Return as inline PDF
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+    res.send(response.data);
+  } catch (error) {
+    console.error('View error:', error);
+    res.status(500).json({ error: 'Failed to view document' });
+  }
+}
+
+// Download Document (triggered download)
+static async downloadDocument(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { user } = req;
+
+    // Verify permissions
+    const order = await Order.findByPk(orderId);
+    if (![order.buyerId, order.supplierId].includes(user.id)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const document = await Document.findOne({ where: { orderId } });
+    if (!document) return res.status(404).json({ error: "Document not found" });
+
+    // Create download record
+    await DocumentDownload.create({
+      documentId: document.id,
+      userId: user.id,
+      downloadedAt: new Date()
+    });
+
+    // Trigger download
+    const response = await axios.get(document.fileUrl, {
+      responseType: 'arraybuffer'
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${document.type}_${orderId}.pdf"`);
+    res.send(response.data);
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: 'Download failed' });
+  }
+}
+
+// Sign Document (initiates signing process)
+static async initiateSigning(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { user } = req;
+
+    const order = await Order.findByPk(orderId);
+    const document = await Document.findOne({ where: { orderId } });
+
+    // Verify permissions and document status
+    if (![order.buyerId, order.supplierId].includes(user.id)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    if (document.status !== 'generated') {
+      return res.status(400).json({ error: "Document not ready for signing" });
+    }
+
+    // Update document status
+    await document.update({ status: 'pending_signatures' });
+
+    // Create signing request
+    const signingRequest = await SigningRequest.create({
+      documentId: document.id,
+      userId: user.id,
+      status: 'pending'
+    });
+
+    // Notify other party
+    const otherPartyId = user.id === order.buyerId 
+      ? order.supplierId 
+      : order.buyerId;
+
+    await Notification.create({
+      userId: otherPartyId,
+      orderId,
+      message: `Document requires your signature (${document.type})`,
+      type: "signature_required"
+    });
+
+    res.json({ 
+      success: true,
+      message: "Signing process initiated",
+      signingRequestId: signingRequest.id
+    });
+  } catch (error) {
+    console.error('Signing error:', error);
+    res.status(500).json({ error: 'Failed to initiate signing' });
+  }
+}
   /**
    * Admin-only document access
    */

@@ -78,37 +78,37 @@ router.patch('/api/orders/:id/status',
  *       properties:
  *         buyerId:
  *           type: string
- *           example: "cba11c5f-1608-4eb2-9659-823efddee3f1"
+ *           example: "9e1a3407-12ca-4236-bedf-e6b470961ead"
  *         supplierId:
  *           type: string
- *           example: "27ebe563-2037-4427-99d9-2f81a7256589"
+ *           example: "7a8ac7df-df38-4ed1-b4bf-798121bd1bc4"
  *         buyerName:
  *           type: string
- *           example: "DANIEL Plastic Inc."
+ *           example: "DANIELELOMA Production Inc."
  *         buyerLocation:
  *           type: string
- *           example: "Lagos, Nigeria"
+ *           example: "Abuja, Nigeria"
  *         supplierLocation:
  *           type: string
- *           example: "Abuja, Nigeria"
+ *           example: "Lagos, Nigeria"
  *         product:
  *           type: string
  *           example:  "PET"
  *         capacity:
  *           type: integer
- *           example: 1000
+ *           example: 3000
  *         pricePerTonne:
  *           type: integer
- *           example: 500
+ *           example: 400
  *         shippingType:
  *           type: string
  *           example: "FOB"
  *         paymentTerms:
  *           type: integer
- *           example: 50
+ *           example: 40
  *         supplierName:
  *           type: string
- *           example: "IFEANYI Plastic Inc."
+ *           example: "JUDITHEJIA Flakes Inc."
  *         supplierPrice:
  *           type: integer
  *           example: 2000

@@ -96,7 +96,7 @@ router.post('/account-managers/register', async (req, res) => {
  *             properties:
  *               email:
  *                 type: string
- *                 example: ezeonymaechimanager@gmail.com
+ *                 example: princeiyke@gmail.com
  *               password:
  *                 type: string
  *                 example: "@iamExony2024"
