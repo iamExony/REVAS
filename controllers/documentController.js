@@ -1,4 +1,4 @@
-const { PDFDocument, rgb, StandardFonts, degrees } = require("pdf-lib");
+const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
 const { v4: uuidv4 } = require("uuid");
 const { Order, Document, Notification, User } = require("../models");
 const cloudinary = require("cloudinary").v2;
@@ -96,10 +96,9 @@ class DocumentController {
    * Generate sales order PDF
    */
   static async generateOrderDocument(req, res) {
+    const { id } = req.params;
+    const { user } = req;
     try {
-      const { id } = req.params;
-      const { user } = req;
-
       // 1. Find order with relationships
       const order = await Order.findByPk(id, {
         include: [
@@ -156,7 +155,7 @@ class DocumentController {
       const invoiceNumber = await generateInvoiceNumber(order, docType);
       const pdfBuffer = await DocumentController.generateOrderPDF(
         { ...order.get(), invoiceNumber },
-        docType
+        docType, user.id
       );
 
       const filename = `${docType}_${order.id}_${uuidv4()}.pdf`;
@@ -262,12 +261,12 @@ class DocumentController {
   /**
    * Generate PDF document
    */
-  static async generateOrderPDF(order, type) {
+  static async generateOrderPDF(order, type, userId) {
     // At the start of the method to prevent spam
-    const recentAttempts = await Document.count({
+         const recentAttempts = await Document.count({
       where: {
-        orderId: id,
-        generatedById: user.id,
+        orderId: order.id,
+        generatedById: userId,
         createdAt: {
           [Op.gt]: new Date(Date.now() - 5 * 60 * 1000), // Last 5 minutes
         },
@@ -279,7 +278,7 @@ class DocumentController {
         error: "Too many attempts",
         message: "Please wait before generating again",
       });
-    }
+    } 
     try {
       const pdfDoc = await PDFDocument.create();
       const page1 = pdfDoc.addPage([612, 792]); // A4 (portrait)
@@ -930,7 +929,7 @@ class DocumentController {
   }
 
   // Upload signed document (for client users)
-   static async uploadSignedDocument(req, res) {
+  static async uploadSignedDocument(req, res) {
     const { orderId } = req.params;
     const { user } = req;
     try {
@@ -1210,115 +1209,135 @@ class DocumentController {
     }
   }
   /**
- * Get signed documents for client
- */
-/**
- * Get signed documents for account managers
- */
+   * Get signed documents for client
+   */
+  /**
+   * Get signed documents for account managers
+   */
 
-static async getSignedDocuments(req, res) {
-  const { user } = req;
-  try {
-    // Validate user is an account manager
-    if (!["buyer", "supplier"].includes(user.role)) {
-      return res.status(403).json({
-        error: "Access denied",
-        message: "Only account managers can access this endpoint",
+  static async getSignedDocuments(req, res) {
+    const { user } = req;
+    try {
+      // Validate user is an account manager
+      if (!["buyer", "supplier"].includes(user.role)) {
+        return res.status(403).json({
+          error: "Access denied",
+          message: "Only account managers can access this endpoint",
+        });
+      }
+
+      console.log(
+        `Fetching documents for ${user.role} account manager (ID: ${user.id})`
+      );
+
+      // Build query conditions based on role
+      const whereConditions = {
+        status: { [Op.in]: ["partially_signed", "fully_signed"] },
+      };
+
+      // For buyer account managers, get sales orders they've signed
+      if (user.role === "buyer") {
+        whereConditions.type = "sales_order";
+        whereConditions.signedByBuyerAt = { [Op.not]: null };
+      }
+      // For supplier account managers, get purchase orders they've signed
+      else if (user.role === "supplier") {
+        whereConditions.type = "purchase_order";
+        whereConditions.signedBySupplierAt = { [Op.not]: null };
+      }
+
+      console.log(
+        "Query conditions:",
+        JSON.stringify(whereConditions, null, 2)
+      );
+
+      // Fetch documents with related order and counterparty info
+      const documents = await Document.findAll({
+        where: whereConditions,
+        include: [
+          {
+            model: Order,
+            as: "order",
+            attributes: [
+              "id",
+              "status",
+              "product",
+              "capacity",
+              "pricePerTonne",
+            ],
+            required: true,
+            where: {
+              // Match orders where user is either buyer or supplier
+              [user.role === "buyer"
+                ? "buyerAccountManagerId"
+                : "supplierAccountManagerId"]: user.id,
+            },
+          },
+          {
+            model: User,
+            as: user.role === "buyer" ? "supplier" : "buyer",
+            attributes: ["id", "firstName", "lastName"],
+            required: false,
+          },
+        ],
+        order: [["updatedAt", "DESC"]],
+        limit: 100,
+      });
+
+      console.log(`Found ${documents.length} documents matching criteria`);
+
+      // Transform response
+      const response = documents.map((doc) => {
+        const isSupplierDoc = doc.type === "purchase_order";
+        const signedAt = isSupplierDoc
+          ? doc.signedBySupplierAt
+          : doc.signedByBuyerAt;
+        const signedUrl = isSupplierDoc
+          ? doc.supplierSignedUrl
+          : doc.buyerSignedUrl;
+        const counterparty = isSupplierDoc ? doc.buyer : doc.supplier;
+
+        return {
+          id: doc.id,
+          orderId: doc.order.id,
+          type: doc.type,
+          status: doc.status,
+          orderStatus: doc.order.status,
+          signedAt,
+          signedDocumentUrl: signedUrl,
+          orderDetails: {
+            product: doc.order.product,
+            quantity: doc.order.capacity,
+            price: doc.order.pricePerTonne,
+            paymentTerms: doc.order.paymentTerms || "N/A",
+          },
+          counterparty: counterparty
+            ? {
+                id: counterparty.id,
+                name: `${counterparty.firstName} ${counterparty.lastName}`,
+                company: counterparty.companyName,
+              }
+            : null,
+          requiresCounterSignature: doc.status === "partially_signed",
+          fullySigned: doc.status === "fully_signed",
+          lastUpdated: doc.updatedAt,
+        };
+      });
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error fetching signed documents:", {
+        userId: user.id,
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({
+        error: "Failed to fetch signed documents",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
-
-    console.log(`Fetching documents for ${user.role} account manager (ID: ${user.id})`);
-
-    // Build query conditions based on role
-    const whereConditions = {
-      status: { [Op.in]: ["partially_signed", "fully_signed"] }
-    };
-
-    // For buyer account managers, get sales orders they've signed
-    if (user.role === "buyer") {
-      whereConditions.type = "sales_order";
-      whereConditions.signedByBuyerAt = { [Op.not]: null };
-    } 
-    // For supplier account managers, get purchase orders they've signed
-    else if (user.role === "supplier") {
-      whereConditions.type = "purchase_order";
-      whereConditions.signedBySupplierAt = { [Op.not]: null };
-    }
-
-    console.log("Query conditions:", JSON.stringify(whereConditions, null, 2));
-
-    // Fetch documents with related order and counterparty info
-    const documents = await Document.findAll({
-      where: whereConditions,
-      include: [
-        {
-          model: Order,
-          as: "order",
-          attributes: ["id", "status", "product", "capacity", "pricePerTonne"],
-          required: true,
-          where: {
-            // Match orders where user is either buyer or supplier
-            [user.role === "buyer" ? "buyerAccountManagerId" : "supplierAccountManagerId"]: user.id
-          }
-        },
-        {
-          model: User,
-          as: user.role === "buyer" ? "supplier" : "buyer",
-          attributes: ["id", "firstName", "lastName"],
-          required: false
-        }
-      ],
-      order: [["updatedAt", "DESC"]],
-      limit: 100
-    });
-
-    console.log(`Found ${documents.length} documents matching criteria`);
-
-    // Transform response
-    const response = documents.map((doc) => {
-      const isSupplierDoc = doc.type === "purchase_order";
-      const signedAt = isSupplierDoc ? doc.signedBySupplierAt : doc.signedByBuyerAt;
-      const signedUrl = isSupplierDoc ? doc.supplierSignedUrl : doc.buyerSignedUrl;
-      const counterparty = isSupplierDoc ? doc.buyer : doc.supplier;
-
-      return {
-        id: doc.id,
-        orderId: doc.order.id,
-        type: doc.type,
-        status: doc.status,
-        orderStatus: doc.order.status,
-        signedAt,
-        signedDocumentUrl: signedUrl,
-        orderDetails: {
-          product: doc.order.product,
-          quantity: doc.order.capacity,
-          price: doc.order.pricePerTonne,
-          paymentTerms: doc.order.paymentTerms || 'N/A'
-        },
-        counterparty: counterparty ? {
-          id: counterparty.id,
-          name: `${counterparty.firstName} ${counterparty.lastName}`,
-          company: counterparty.companyName
-        } : null,
-        requiresCounterSignature: doc.status === "partially_signed",
-        fullySigned: doc.status === "fully_signed",
-        lastUpdated: doc.updatedAt
-      };
-    });
-
-    res.json(response);
-  } catch (error) {
-    console.error("Error fetching signed documents:", {
-      userId: user.id,
-      error: error.message,
-      stack: error.stack
-    });
-    res.status(500).json({
-      error: "Failed to fetch signed documents",
-      details: process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
   }
-}
 }
 
 module.exports = DocumentController;
