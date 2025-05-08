@@ -70,7 +70,7 @@ const registerProduct = async (req, res) => {
 };
 
 // Get Products by Company
-const getProductsByCompany = async (req, res) => {
+/* const getProductsByCompany = async (req, res) => {
   try {
     const { companyName } = req.query;
 
@@ -87,6 +87,64 @@ const getProductsByCompany = async (req, res) => {
     res.status(200).json({ products });
   } catch (error) {
     console.error("Error fetching products:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}; */
+
+// Search for products by company name (Suppliers only)
+const getProductsBySupplierCompany = async (req, res) => {
+  try {
+    const { companyName } = req.query;
+
+    let whereCondition = {};
+    let userWhereCondition = { clientType: 'Supplier' }; // Filter for suppliers only
+    
+    if (companyName) {
+      whereCondition.companyName = { [Op.iLike]: `%${companyName}%` };
+    }
+
+    const products = await Product.findAll({
+      where: whereCondition,
+      include: [{
+        model: User,
+        where: userWhereCondition,
+        attributes: [] // Exclude user details from the result
+      }],
+      order: [["companyName", "ASC"]],
+    });
+
+    res.status(200).json({ products });
+  } catch (error) {
+    console.error("Error fetching supplier products:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Search for products by company name (Buyers only)
+const getProductsByBuyerCompany = async (req, res) => {
+  try {
+    const { companyName } = req.query;
+
+    let whereCondition = {};
+    let userWhereCondition = { clientType: 'Buyer' }; // Filter for buyers only
+    
+    if (companyName) {
+      whereCondition.companyName = { [Op.iLike]: `%${companyName}%` };
+    }
+
+    const products = await Product.findAll({
+      where: whereCondition,
+      include: [{
+        model: User,
+        where: userWhereCondition,
+        attributes: [] // Exclude user details from the result
+      }],
+      order: [["companyName", "ASC"]],
+    });
+
+    res.status(200).json({ products });
+  } catch (error) {
+    console.error("Error fetching buyer products:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -477,7 +535,6 @@ const getUnregisteredUsers = async (req, res) => {
 
 module.exports = {
   registerProduct,
-  getProductsByCompany,
   createUserAndProduct,
   getAllProducts,
   getProductById,
@@ -485,4 +542,6 @@ module.exports = {
   deleteProduct,
   getManagedUsers,
   getUnregisteredUsers,
+  getProductsByBuyerCompany,
+  getProductsBySupplierCompany,
 };

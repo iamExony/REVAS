@@ -1,7 +1,6 @@
 const express = require("express");
 const {
   registerProduct,
-  getProductsByCompany,
   createUserAndProduct,
   getAllProducts,
   getProductById,
@@ -9,6 +8,8 @@ const {
   updateProduct,
   getUnregisteredUsers,
   getManagedUsers,
+  getProductsByBuyerCompany,
+  getProductsBySupplierCompany,
 } = require("../controllers/productController");
 const {
   authMiddleware,
@@ -60,11 +61,7 @@ const router = express.Router();
  *                         registered:
  *                           type: integer
  */
-router.get(
-  "/managed-users",
-  authMiddleware,
-  getManagedUsers
-);
+router.get("/managed-users", authMiddleware, getManagedUsers);
 
 /**
  * @swagger
@@ -89,7 +86,6 @@ router.get(
   authMiddleware,
   getUnregisteredUsers
 );
-
 
 /**
  * @swagger
@@ -147,55 +143,98 @@ router.post(
 
 /**
  * @swagger
- * /products:
+ * tags:
+ *   name: Products
+ *   description: Product search by company name (Buyers/Suppliers)
+ */
+
+/**
+ * @swagger
+ * /products/suppliers:
  *   get:
- *     summary: Get products by company name (Buyers & Sellers only)
+ *     summary: Search products by company name (Suppliers only)
  *     tags: [Account Managers]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: companyName
  *         schema:
  *           type: string
- *         required: true
- *         description: Company name to search products for
+ *         description: Company name or partial name to search for
  *     responses:
  *       200:
- *         description: List of products from the given company
+ *         description: List of products from suppliers
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   companyName:
- *                     type: string
- *                   product:
- *                     type: string
- *                   capacity:
- *                     type: integer
- *                   price:
- *                     type: number
- *                     format: float
- *                   location:
- *                     type: string
- *       400:
- *         description: Company name is required
- *       403:
- *         description: Access denied (Only Buyers & Sellers)
- *       404:
- *         description: No products found
+ *               type: object
+ *               properties:
+ *                 products:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Product'
+ *       500:
+ *         description: Internal server error
  */
-router.get(
-  "/products",
-  authMiddleware,
-  authenticateRole(["buyer", "seller"]),
-  getProductsByCompany
-);
+router.get("/products/suppliers", getProductsBySupplierCompany);
+
+/**
+ * @swagger
+ * /products/buyers:
+ *   get:
+ *     summary: Search products by company name (Buyers only)
+ *     tags: [Account Managers]
+ *     parameters:
+ *       - in: query
+ *         name: companyName
+ *         schema:
+ *           type: string
+ *         description: Company name or partial name to search for
+ *     responses:
+ *       200:
+ *         description: List of products from buyers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 products:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Product'
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/products/buyers", getProductsByBuyerCompany);
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Product:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *           example: "123e4567-e89b-12d3-a456-426614174000"
+ *         companyName:
+ *           type: string
+ *           example: "ABC Corp"
+ *          #Add other Product fields as needed
+ *     User:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *         firstName:
+ *           type: string
+ *         lastName:
+ *           type: string
+ *         clientType:
+ *           type: string
+ *           enum: [Buyer, Supplier]
+ */
 
 /**
  * @swagger
@@ -282,7 +321,12 @@ router.post(
  *               items:
  *                 $ref: '#/components/schemas/Product'
  */
-router.get('/products/all', authMiddleware, authenticateRole(["buyer", "seller"]), getAllProducts);
+router.get(
+  "/products/all",
+  authMiddleware,
+  authenticateRole(["buyer", "seller"]),
+  getAllProducts
+);
 
 /**
  * @swagger
@@ -309,7 +353,12 @@ router.get('/products/all', authMiddleware, authenticateRole(["buyer", "seller"]
  *       404:
  *         description: Product not found
  */
-router.get('/products/:id', authMiddleware, authenticateRole(["buyer", "seller"]), getProductById);
+router.get(
+  "/products/:id",
+  authMiddleware,
+  authenticateRole(["buyer", "seller"]),
+  getProductById
+);
 
 /**
  * @swagger
@@ -360,7 +409,13 @@ router.get('/products/:id', authMiddleware, authenticateRole(["buyer", "seller"]
  *       404:
  *         description: Product not found
  */
-router.put('/products/:id', authMiddleware, upload.single('image'), parseArrays, updateProduct);
+router.put(
+  "/products/:id",
+  authMiddleware,
+  upload.single("image"),
+  parseArrays,
+  updateProduct
+);
 
 /**
  * @swagger
@@ -383,7 +438,12 @@ router.put('/products/:id', authMiddleware, upload.single('image'), parseArrays,
  *       404:
  *         description: Product not found
  */
-router.delete('/products/:id', authMiddleware, authenticateRole(["buyer", "seller"]), deleteProduct);
+router.delete(
+  "/products/:id",
+  authMiddleware,
+  authenticateRole(["buyer", "seller"]),
+  deleteProduct
+);
 
 // Make sure to update your Swagger components
 /**
