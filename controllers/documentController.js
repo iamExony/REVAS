@@ -155,7 +155,8 @@ class DocumentController {
       const invoiceNumber = await generateInvoiceNumber(order, docType);
       const pdfBuffer = await DocumentController.generateOrderPDF(
         { ...order.get(), invoiceNumber },
-        docType, user.id
+        docType,
+        user.id
       );
 
       const filename = `${docType}_${order.id}_${uuidv4()}.pdf`;
@@ -263,7 +264,7 @@ class DocumentController {
    */
   static async generateOrderPDF(order, type, userId) {
     // At the start of the method to prevent spam
-         const recentAttempts = await Document.count({
+    const recentAttempts = await Document.count({
       where: {
         orderId: order.id,
         generatedById: userId,
@@ -278,7 +279,7 @@ class DocumentController {
         error: "Too many attempts",
         message: "Please wait before generating again",
       });
-    } 
+    }
     try {
       const pdfDoc = await PDFDocument.create();
       const page1 = pdfDoc.addPage([612, 792]); // A4 (portrait)
@@ -552,15 +553,24 @@ class DocumentController {
 
       // Calculate amounts and total
       let grandTotal = 0;
+      const currencyValue = (value) => {
+        const formattedAmount = value.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+        return formattedAmount;
+      };
       const processedItems = items.map((item) => {
         const amount = item.qty * item.unitPrice;
         grandTotal += amount;
 
+        const unitPriceValue = `${item.unitPrice}/${item.unit}`;
         return {
           ...item,
           qtyDisplay: `${item.qty}${item.unit}`, // e.g. "22MT"
-          priceDisplay: `$${item.unitPrice.toFixed(2)}/${item.unit}`, // e.g. "$700.00/MT"
-          amountDisplay: `USD $${amount.toFixed(2)}`, // e.g. "USD $15,400.00"
+          priceDisplay: `$${currencyValue(unitPriceValue)}`, // e.g. "$700.00/MT"
+          amountDisplay: `USD $${currencyValue(amount)}`, // e.g. "USD $15,400.00"
         };
       });
 
@@ -602,7 +612,7 @@ class DocumentController {
       });
 
       // Draw Delivery Total
-      const deliveryY = 370 - processedItems.length * 20 - 50; // 30pt below last item
+      const deliveryY = 390 - processedItems.length * 20 - 50; // 30pt below last item
       page1.drawText("Delivery", {
         x: 392,
         y: deliveryY,
@@ -617,19 +627,40 @@ class DocumentController {
       });
 
       // Draw Delivery Total
-      const totalY = 370 - processedItems.length * 30 - 50; // 30pt below last item
-      page1.drawText("Total (excl. VAT):", {
-        x: 392,
-        y: totalY,
-        size: 10,
-        font: helveticaBold,
-      });
-      page1.drawText(`USD $${grandTotal.toFixed(2)}`, {
+      const totalY = 380 - processedItems.length * 30 - 50; // 30pt below last item
+      page1.drawText(
+        type === "sales_order" ? "Subtotal:" : "Total (excl. VAT):",
+        {
+          x: 392,
+          y: totalY,
+          size: 10,
+          font: helveticaBold,
+        }
+      );
+      page1.drawText(`USD $${currencyValue(grandTotal)}`, {
         x: 512,
         y: totalY,
         size: 10,
         font: helveticaBold,
       });
+
+      // Draw Delivery Amount Due
+      if (type === "sales_order") {
+        const subTotalY = 370 - processedItems.length * 40 - 50; // 30pt below last item
+        page1.drawText("Amount due (50%):", {
+          x: 392,
+          y: subTotalY,
+          size: 10,
+          font: helveticaBold,
+        });
+        const amountDue = 0.5 * grandTotal;
+        page1.drawText(`USD $${currencyValue(amountDue)}`, {
+          x: 512,
+          y: subTotalY,
+          size: 10,
+          font: helveticaBold,
+        });
+      }
 
       //Footer
       async function addLogoToPDF(pdfDoc) {
