@@ -7,7 +7,7 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
 
 /**
  * @swagger
- * /api/orders/{id}/status:
+ * /orders/{id}/status:
  *   patch:
  *     summary: Update order status (Account Managers only)
  *     tags: [Orders]
@@ -40,7 +40,7 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
  *       404:
  *         description: Order not found
  */
-router.patch('/api/orders/:id/status', 
+router.patch('orders/:id/status', 
     authMiddleware, 
     authenticateRole(['buyer', 'supplier']),
     orderController.updateOrderStatus

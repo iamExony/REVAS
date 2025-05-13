@@ -441,7 +441,7 @@ class DocumentController {
           name: "Container",
         },
         incoTerm: {
-          name: "EXW",
+          name: order.shippingType,
         },
         payTerm: {
           name: `${order.paymentTerms}% due immediately. Remainder due 0 days after collection from supplier`,
