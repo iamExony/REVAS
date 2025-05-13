@@ -40,7 +40,7 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
  *       404:
  *         description: Order not found
  */
-router.patch('orders/:id/status', 
+router.patch('/orders/:id/status', 
     authMiddleware, 
     authenticateRole(['buyer', 'supplier']),
     orderController.updateOrderStatus
@@ -48,7 +48,7 @@ router.patch('orders/:id/status',
   
   /**
    * @swagger
-   * /api/orders/dashboard:
+   * /orders/dashboard:
    *   get:
    *     summary: Get orders for dashboard view
    *     tags: [Orders]
@@ -66,7 +66,7 @@ router.patch('orders/:id/status',
    *       403:
    *         description: Forbidden
    */
-  router.get('/api/orders/dashboard',authMiddleware,
+  router.get('/orders/dashboard',authMiddleware,
     orderController.getDashboardOrders);
   
 /**
