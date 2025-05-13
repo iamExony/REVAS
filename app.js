@@ -28,14 +28,10 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   /* origin: process.env.ALLOWED_ORIGINS, */
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Content-Disposition'] // Important for downloads
 }));
-/* app.use(cors({
-  origin: 'https://yourfrontend.com', // Only allow your frontend
-  credentials: true
-})); */
 
 app.use(express.json()); 
 
