@@ -69,28 +69,6 @@ const registerProduct = async (req, res) => {
   }
 };
 
-// Get Products by Company
-/* const getProductsByCompany = async (req, res) => {
-  try {
-    const { companyName } = req.query;
-
-    let whereCondition = {};
-    if (companyName) {
-      whereCondition.companyName = { [Op.iLike]: `%${companyName}%` };
-    }
-
-    const products = await Product.findAll({
-      where: whereCondition,
-      order: [["companyName", "ASC"]],
-    });
-
-    res.status(200).json({ products });
-  } catch (error) {
-    console.error("Error fetching products:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-}; */
-
 // Search for products by company name (Suppliers only)
 const getProductsBySupplierCompany = async (req, res) => {
   try {

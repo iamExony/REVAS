@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
+const { templates, sendEmail } = require("../utils/emailService");
 
 const register = async (req, res) => {
   const {
@@ -15,6 +16,7 @@ const register = async (req, res) => {
     confirmPassword,
     role,
     clientType,
+    whatsappNumber,
   } = req.body;
 
   // Validate confirmPassword
@@ -29,21 +31,26 @@ const register = async (req, res) => {
       return res.status(400).json({ error: "Email already exists" });
     }
 
-    // Validate clientType
-    if ((role !== "buyer" || role !== "supplier") && !clientType) {
-      return res
-        .status(400)
-        .json({ error: "Client type is required for users" });
+    // FIXED: Correct clientType validation logic
+    if (!['buyer', 'supplier'].includes(role.toLowerCase()) && !clientType) {
+      return res.status(400).json({ error: "Client type is required for users" });
     }
 
-    if ((role === "buyer" || role === "supplier") && clientType) {
-      return res
-        .status(400)
-        .json({ error: "Account Managers should not have a client type" });
+    if (['buyer', 'supplier'].includes(role.toLowerCase()) && clientType) {
+      return res.status(400).json({ 
+        error: "Account Managers should not have a client type" 
+      });
     }
 
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // WhatsApp number validation
+    if (whatsappNumber && !/^\+?[0-9]{10,15}$/.test(whatsappNumber)) {
+      return res.status(400).json({
+        error: "Invalid WhatsApp number format. Use numbers only with country code",
+      });
+    }
 
     // Create the user
     const user = await User.create({
@@ -52,57 +59,88 @@ const register = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      clientType: role === "buyer" || role === "supplier" ? null : clientType, // Allow null for account managers
+      clientType: ['buyer', 'supplier'].includes(role.toLowerCase()) ? null : clientType,
+      whatsappNumber,
+      status: 'pending'
     });
 
-    // Generate a JWT token
-    const token = jwt.sign(
-      { id: user.id, role: user.role, clientType: clientType },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "1h",
-      }
-    );
+    // Send email to user
+    try {
+      await sendEmail(
+        user.email,
+        templates.userRegistered(user).subject,
+        templates.userRegistered(user).text
+      );
+    } catch (emailError) {
+      console.error('Failed to send user email:', emailError);
+    }
 
-    // Return the response
+    // Notify account managers if this is a client user
+    if (clientType) {
+      try {
+        const accountManagers = await User.findAll({
+          where: {
+            role: clientType.toLowerCase(),
+            status: "pending",
+          },
+        });
+
+        // Send notification to each account manager
+        for (const manager of accountManagers) {
+          try {
+            await sendEmail(
+              manager.email,
+              templates.newUserNotification(user, manager).subject,
+              templates.newUserNotification(user, manager).text
+            );
+            console.log(`Notification sent to manager: ${manager.email}`);
+          } catch (managerEmailError) {
+            console.error(`Failed to send email to manager ${manager.email}:`, managerEmailError);
+          }
+        }
+
+        // Assign to account manager
+        const accountManager = await User.findOne({
+          where: {
+            role: clientType.toLowerCase(),
+            clientType: null,
+          },
+        });
+
+        if (accountManager) {
+          await accountManager.update({
+            managedClient: sequelize.fn(
+              "array_append",
+              sequelize.col("managedClient"),
+              user.id
+            ),
+          });
+        }
+      } catch (managerError) {
+        console.error('Error in account manager notification:', managerError);
+      }
+    }
+
+    // Return response
     res.status(201).json({
-      message: "User registered successfully",
+      message: "User registered successfully. Account pending approval.",
       user: {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        companyName: user.companyName,
         email: user.email,
         role: user.role,
         clientType: user.clientType,
-        hasRegisteredProduct: user.hasRegisteredProduct,
+        status: user.status,
       },
-      token,
     });
 
-    // After user creation, assign to account manager if it's a regular user
-    if (clientType) {
-      const accountManagerRole = clientType.toLowerCase(); // "Buyer" -> "buyer"
-      const accountManager = await User.findOne({
-        where: {
-          role: accountManagerRole,
-          clientType: null, // Ensure it's an account manager
-        },
-      });
-
-      if (accountManager) {
-        await accountManager.update({
-          managedClient: sequelize.fn(
-            "array_append",
-            sequelize.col("managedClient"),
-            user.id
-          ),
-        });
-      }
-    }
   } catch (error) {
     console.error("Error in register function:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: "Registration failed",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
@@ -118,6 +156,13 @@ const login = async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ error: "Invalid password" });
+    }
+    // Check if user is approved
+    if (user.status !== "approved") {
+      return res.status(403).json({
+        error:
+          "Account pending approval. Please wait for administrator approval.",
+      });
     }
 
     // Track login
@@ -321,7 +366,7 @@ const setInitialPassword = async (req, res) => {
   try {
     const { newPassword, confirmPassword } = req.body;
     const user = await User.findByPk(req.user.id);
-    
+
     // Validate confirmPassword
     if (newPassword !== confirmPassword) {
       return res.status(400).json({ error: "Passwords do not match" });

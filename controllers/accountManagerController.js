@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database'); // Make sure this path is correct
+const { templates, sendEmail } = require("../utils/emailService");
 
 // Validate Role
 exports.validateAccountManagerRole = (role) => {
@@ -117,7 +118,7 @@ exports.loginAccountManager = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: user.id, role: user.role, managedClient: user.managedClient },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -252,5 +253,235 @@ exports.removeClient = async (req, res) => {
     await transaction.rollback();
     console.error('Remove client error:', error);
     return res.status(500).json({ error: 'Failed to remove client' });
+  }
+};
+
+// controllers/userApprovalController.js
+exports.getPendingUsers = async (req, res) => {
+  try {
+    const accountManager = req.user;
+    
+    // Get users matching the account manager's role (buyer/supplier)
+    const users = await User.findAll({
+      where: {
+        clientType: accountManager.role.charAt(0).toUpperCase() + accountManager.role.slice(1),
+        status: 'pending'
+      },
+      attributes: { exclude: ['password'] }
+    });
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch pending users' });
+  }
+};
+
+exports.getUserDetails = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const accountManager = req.user;
+    
+    const user = await User.findOne({
+      where: {
+        id: userId,
+        clientType: accountManager.role.charAt(0).toUpperCase() + accountManager.role.slice(1)
+      },
+      attributes: { exclude: ['password'] }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch user details' });
+  }
+};
+
+/* exports.approveUser = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { userId } = req.params;
+    const accountManager = req.user;
+
+    const user = await User.findOne({
+      where: {
+        id: userId,
+        clientType: accountManager.role.charAt(0).toUpperCase() + accountManager.role.slice(1),
+        status: 'pending'
+      },
+      transaction
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Pending user not found' });
+    }
+
+    // Update user status
+    await user.update({
+      status: 'approved',
+      approvedAt: new Date(),
+      approvedById: accountManager.id
+    }, { transaction });
+
+    // Add to managed clients if not already there
+    if (!accountManager.managedClient.includes(user.id)) {
+      await accountManager.update({
+        managedClient: sequelize.fn(
+          'array_append',
+          sequelize.col('managedClient'),
+          user.id
+        )
+      }, { transaction });
+    }
+
+    // Send approval email
+    await sendEmail(
+      user.email,
+      templates.userApproved(user).subject,
+      templates.userApproved(user).text
+    );
+
+    await transaction.commit();
+    res.json({ message: 'User approved successfully' });
+  } catch (error) {
+    await transaction.rollback();
+    res.status(500).json({ error: 'Failed to approve user' });
+  }
+}; */
+
+exports.approveUser = async (req, res) => {
+  let transaction;
+  try {
+    transaction = await sequelize.transaction();
+    const { userId } = req.params;
+    const accountManager = req.user;
+
+    // Validate account manager role
+    if (!['buyer', 'supplier'].includes(accountManager.role)) {
+      throw new Error('Invalid account manager role');
+    }
+
+    const clientType = accountManager.role.charAt(0).toUpperCase() + 
+                      accountManager.role.slice(1);
+
+    const user = await User.findOne({
+      where: {
+        id: userId,
+        clientType,
+        status: 'pending'
+      },
+      transaction
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        error: 'Pending user not found or already processed',
+        details: `No pending ${clientType} user found with ID ${userId}`
+      });
+    }
+
+    // Update user status
+    await user.update({
+      status: 'approved',
+      approvedAt: new Date(),
+      approvedById: accountManager.id
+    }, { transaction });
+
+    // Update manager's client list
+    let managedClients = accountManager.managedClient || [];
+    if (!managedClients.includes(user.id)) {
+      managedClients = [...managedClients, user.id];
+      await accountManager.update({
+        managedClient: managedClients
+      }, { transaction });
+    }
+
+    // Commit transaction before sending email
+    await transaction.commit();
+
+    // Send email (non-critical operation)
+    try {
+      await sendEmail(
+        user.email,
+        templates.userApproved(user).subject,
+        templates.userApproved(user).text
+      );
+    } catch (emailError) {
+      console.error('Email sending failed:', emailError);
+      // Don't fail the request because email failed
+    }
+
+    res.json({ 
+      message: 'User approved successfully',
+      userId: user.id,
+      approvedBy: accountManager.id
+    });
+
+  } catch (error) {
+    console.error('Approval process failed:', error);
+    if (transaction) await transaction.rollback();
+    
+    res.status(500).json({ 
+      error: 'Failed to approve user',
+      ...(process.env.NODE_ENV === 'development' && {
+        details: error.message,
+        stack: error.stack
+      })
+    });
+  }
+};
+exports.rejectUser = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    const accountManager = await User.findByPk(req.user.id, { transaction });
+
+    if (!reason) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    const user = await User.findOne({
+      where: {
+        id: userId,
+        clientType: accountManager.role.charAt(0).toUpperCase() + accountManager.role.slice(1),
+        status: 'pending'
+      },
+      transaction
+    });
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Pending user not found' });
+    }
+
+    // Send rejection email before deleting
+    await sendEmail(
+      user.email,
+      'Account Registration Rejected',
+      `Dear ${user.firstName},\n\n` +
+      `We regret to inform you that your account registration has been rejected.\n\n` +
+      `Reason: ${reason}\n\n` +
+      `If you believe this was in error, please contact support.`
+    );
+
+    // Delete the user
+    await user.destroy({ transaction });
+
+    await transaction.commit();
+    return res.json({ message: 'User rejected and deleted successfully' });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Rejection error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to reject user',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };

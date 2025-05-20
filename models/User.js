@@ -43,6 +43,15 @@ const User = sequelize.define("User", {
     comment:
       "Only required for users (Buyer, Supplier); account managers can have null.",
   },
+  whatsappNumber: {
+    type: DataTypes.STRING,
+    allowNull: true, // Make it optional if needed
+    validate: {
+      isNumeric: true, // Ensures only numbers
+      len: [10, 15], // Minimum and maximum length
+    },
+    comment: "User's WhatsApp number for communication",
+  },
   resetToken: {
     type: DataTypes.STRING,
     allowNull: true,
@@ -66,21 +75,42 @@ const User = sequelize.define("User", {
   },
   passwordChangedAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
   },
   lastLogin: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
   },
   managedClient: {
     type: DataTypes.ARRAY(DataTypes.UUID),
     allowNull: true,
     defaultValue: [],
   },
+  status: {
+    type: DataTypes.ENUM("pending", "approved", "rejected"),
+    defaultValue: "pending",
+    allowNull: false,
+  },
+  rejectionReason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  approvedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  approvedById: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
 });
 // In your User model definition
 User.beforeUpdate(async (user, options) => {
-  if (user.changed('password')) {
+  if (user.changed("password")) {
     user.passwordChangedAt = new Date();
   }
 });
@@ -113,24 +143,24 @@ User.associate = (models) => {
     },
   });
   // Add to User.associate
-   User.hasMany(models.Notification, {
+  User.hasMany(models.Notification, {
     foreignKey: "userId",
     as: "notifications",
-  }); 
+  });
 
-    // Documents
-     User.hasMany(models.Document, {
-      foreignKey: "generatedById",
-      as: "generatedDocuments",
-    });
-    User.hasMany(models.Document, {
-      foreignKey: "signedById",
-      as: "signedDocuments",
-    }); 
-    User.hasMany(models.Order, {
-      as: "matchedOrders",
-      foreignKey: "matchedById"
-    });
+  // Documents
+  User.hasMany(models.Document, {
+    foreignKey: "generatedById",
+    as: "generatedDocuments",
+  });
+  User.hasMany(models.Document, {
+    foreignKey: "signedById",
+    as: "signedDocuments",
+  });
+  User.hasMany(models.Order, {
+    as: "matchedOrders",
+    foreignKey: "matchedById",
+  });
 };
 
 module.exports = User;

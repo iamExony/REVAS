@@ -1,21 +1,28 @@
-const express = require('express');
-const { 
-  register, 
-  login, 
-  forgotPassword, 
-  resetPassword, 
+const express = require("express");
+const {
+  register,
+  login,
+  forgotPassword,
+  resetPassword,
   updatePassword,
-  setInitialPassword
-} = require('../controllers/authController');
-const { 
-  registerAccountManager, 
-  loginAccountManager, 
+  setInitialPassword,
+} = require("../controllers/authController");
+const {
+  registerAccountManager,
+  loginAccountManager,
   validateAccountManagerRole,
   getManagedClients,
   assignClients,
-  removeClient
-} = require('../controllers/accountManagerController');
-const { authMiddleware, authenticateRole } = require('../middleware/authMiddleware');
+  removeClient,
+  getPendingUsers,
+  getUserDetails,
+  approveUser,
+  rejectUser,
+} = require("../controllers/accountManagerController");
+const {
+  authMiddleware,
+  authenticateRole,
+} = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -36,7 +43,7 @@ const router = express.Router();
  * /account-managers/register:
  *   post:
  *     summary: Register as Account Manager
- *     tags: [Account Managers] 
+ *     tags: [Account Managers]
  *     requestBody:
  *       required: true
  *       content:
@@ -46,13 +53,13 @@ const router = express.Router();
  *             properties:
  *               firstName:
  *                 type: string
- *                 example: Onyemaechi
+ *                 example: Prince
  *               lastName:
  *                 type: string
- *                 example: Eze
+ *                 example: Iyke
  *               email:
  *                 type: string
- *                 example: ezeonymaechimanager@gmail.com
+ *                 example: onye4holiness@gmail.com
  *               password:
  *                 type: string
  *                 example: "@iamExony2024"
@@ -71,7 +78,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post('/account-managers/register', async (req, res) => {
+router.post("/account-managers/register", async (req, res) => {
   try {
     const { role } = req.body;
     validateAccountManagerRole(role);
@@ -86,7 +93,7 @@ router.post('/account-managers/register', async (req, res) => {
  * /account-managers/login:
  *   post:
  *     summary: Login an Account Manager
- *     tags: [Account Managers] 
+ *     tags: [Account Managers]
  *     requestBody:
  *       required: true
  *       content:
@@ -96,7 +103,7 @@ router.post('/account-managers/register', async (req, res) => {
  *             properties:
  *               email:
  *                 type: string
- *                 example: princeiyke@gmail.com
+ *                 example: onye4holiness@gmail.com
  *               password:
  *                 type: string
  *                 example: "@iamExony2024"
@@ -108,7 +115,7 @@ router.post('/account-managers/register', async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.post('/account-managers/login', loginAccountManager);
+router.post("/account-managers/login", loginAccountManager);
 
 // Account Manager Client Management
 /**
@@ -135,9 +142,10 @@ router.post('/account-managers/login', loginAccountManager);
  *       500:
  *         description: Internal server error
  */
-router.get('/account-managers/clients', 
-  authMiddleware, 
-  authenticateRole(['buyer', 'supplier']),
+router.get(
+  "/account-managers/clients",
+  authMiddleware,
+  authenticateRole(["buyer", "supplier"]),
   getManagedClients
 );
 
@@ -177,9 +185,10 @@ router.get('/account-managers/clients',
  *       500:
  *         description: Internal server error
  */
-router.post('/account-managers/clients', 
-  authMiddleware, 
-  authenticateRole(['buyer', 'supplier']),
+router.post(
+  "/account-managers/clients",
+  authMiddleware,
+  authenticateRole(["buyer", "supplier"]),
   assignClients
 );
 
@@ -211,9 +220,10 @@ router.post('/account-managers/clients',
  *       500:
  *         description: Internal server error
  */
-router.delete('/account-managers/clients/:clientId', 
-  authMiddleware, 
-  authenticateRole(['buyer', 'supplier']),
+router.delete(
+  "/account-managers/clients/:clientId",
+  authMiddleware,
+  authenticateRole(["buyer", "supplier"]),
   removeClient
 );
 
@@ -223,7 +233,7 @@ router.delete('/account-managers/clients/:clientId',
  * /register:
  *   post:
  *     summary: Register a new user
- *     tags: [Users] 
+ *     tags: [Users]
  *     requestBody:
  *       required: true
  *       content:
@@ -253,6 +263,10 @@ router.delete('/account-managers/clients/:clientId',
  *                 type: string
  *                 enum: [Buyer, Supplier]
  *                 example: Buyer
+ *               whatsappNumber:
+ *                 type: string
+ *                 example: "2348123456789"
+ *                 description: WhatsApp number with country code (required)
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -261,14 +275,14 @@ router.delete('/account-managers/clients/:clientId',
  *       500:
  *         description: Internal server error
  */
-router.post('/register', register);
+router.post("/register", register);
 
 /**
  * @swagger
  * /login:
  *   post:
  *     summary: Login a user
- *     tags: [Users] 
+ *     tags: [Users]
  *     requestBody:
  *       required: true
  *       content:
@@ -290,7 +304,7 @@ router.post('/register', register);
  *       500:
  *         description: Internal server error
  */
-router.post('/login', login);
+router.post("/login", login);
 
 // Password Reset (for both users and account managers)
 /**
@@ -298,7 +312,7 @@ router.post('/login', login);
  * /forgot-password:
  *   post:
  *     summary: Request a password reset link
- *     tags: [Authentication] 
+ *     tags: [Authentication]
  *     requestBody:
  *       required: true
  *       content:
@@ -318,7 +332,7 @@ router.post('/login', login);
  *       500:
  *         description: Internal server error
  */
-router.post('/forgot-password', forgotPassword);
+router.post("/forgot-password", forgotPassword);
 
 /**
  * @swagger
@@ -360,7 +374,7 @@ router.post('/forgot-password', forgotPassword);
  *       500:
  *         description: Internal server error
  */
-router.post('/reset-password', resetPassword);
+router.post("/reset-password", resetPassword);
 
 /**
  * @swagger
@@ -394,7 +408,7 @@ router.post('/reset-password', resetPassword);
  *       400:
  *         description: New password same as current
  */
-router.post('/update-password', authMiddleware, updatePassword);
+router.post("/update-password", authMiddleware, updatePassword);
 
 /**
  * @swagger
@@ -425,6 +439,117 @@ router.post('/update-password', authMiddleware, updatePassword);
  *       400:
  *         description: Password already changed
  */
-router.post('/initial-password', authMiddleware, setInitialPassword);
+router.post("/initial-password", authMiddleware, setInitialPassword);
+
+/**
+ * @swagger
+ * /account-managers/pending-users:
+ *   get:
+ *     summary: Get all pending users for approval
+ *     tags: [Account Managers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending users
+ */
+router.get('/account-managers/pending-users', 
+  authMiddleware, 
+  authenticateRole(['buyer', 'supplier']),
+  getPendingUsers
+);
+
+/**
+ * @swagger
+ * /account-managers/users/{userId}:
+ *   get:
+ *     summary: Get details of a specific pending user
+ *     tags: [Account Managers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User details
+ *       404:
+ *         description: User not found
+ */
+router.get('/account-managers/users/:userId', 
+  authMiddleware, 
+  authenticateRole(['buyer', 'supplier']),
+  getUserDetails
+);
+
+/**
+ * @swagger
+ * /account-managers/users/{userId}/approve:
+ *   patch:
+ *     summary: Approve a pending user
+ *     tags: [Account Managers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User approved successfully
+ *       404:
+ *         description: User not found
+ */
+router.patch('/account-managers/users/:userId/approve', 
+  authMiddleware, 
+  authenticateRole(['buyer', 'supplier']),
+  approveUser
+);
+
+/**
+ * @swagger
+ * /account-managers/users/{userId}/reject:
+ *   patch:
+ *     summary: Reject a pending user
+ *     tags: [Account Managers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 description: Reason for rejection
+ *     responses:
+ *       200:
+ *         description: User rejected successfully
+ *       400:
+ *         description: Reason is required
+ *       404:
+ *         description: User not found
+ */
+router.patch('/account-managers/users/:userId/reject', 
+  authMiddleware, 
+  authenticateRole(['buyer', 'supplier']),
+  rejectUser
+);
 
 module.exports = router;

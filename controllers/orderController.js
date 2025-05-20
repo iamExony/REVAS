@@ -265,6 +265,7 @@ exports.updateOrderStatus = async (req, res) => {
 
     // Prepare response with all manager details
     const response = {
+      message: "Order status updated successfully",
       ...order.toJSON(),
       matchedBy: matchedByUser ? {
         id: matchedByUser.id,
