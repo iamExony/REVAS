@@ -23,6 +23,7 @@ const Notification = sequelize.define('Notification', {
   },
   type: {
     type: DataTypes.ENUM(
+      'order_approved',
       'order_created',       // When buyer AM creates order
       'status_changed',      // When supplier changes status (matched→document_phase)
       'document_generated',  // When buyer AM generates supplier order

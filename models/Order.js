@@ -35,13 +35,14 @@ const Order = sequelize.define("Order", {
   },
   status: {
     type: DataTypes.ENUM(
+      "pending_approval",
       "not_matched",
       "matched",
       "document_phase",
       "processing",
       "completed"
     ),
-    defaultValue: "not_matched",
+    defaultValue: "pending_approval",
     allowNull: false,
   },
   documentType: {

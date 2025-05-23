@@ -16,12 +16,21 @@ exports.createOrder = async (req, res) => {
 
     // Validate required fields
     const requiredFields = [
-      "buyerName", "product", "capacity", "pricePerTonne",
-      "buyerId", "supplierId", "shippingType", "paymentTerms",
-      "supplierName", "supplierPrice", "shippingCost", "negotiatePrice"
+      "buyerName",
+      "product",
+      "capacity",
+      "pricePerTonne",
+      "buyerId",
+      "supplierId",
+      "shippingType",
+      "paymentTerms",
+      "supplierName",
+      "supplierPrice",
+      "shippingCost",
+      "negotiatePrice",
     ];
 
-    const missingFields = requiredFields.filter(field => !req.body[field]);
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
     if (missingFields.length > 0) {
       return res.status(400).json({
         message: `Missing fields: ${missingFields.join(", ")}`,
@@ -30,24 +39,25 @@ exports.createOrder = async (req, res) => {
 
     // Get account manager details
     const accountManager = await User.findByPk(req.user.id, {
-      attributes: ["id", "firstName", "lastName", "email"]
+      attributes: ["id", "firstName", "lastName", "email"],
     });
 
     // Find counterpart account manager
     const counterpartRole = req.user.role === "buyer" ? "supplier" : "buyer";
-    const counterpartUserId = req.user.role === "buyer" ? req.body.supplierId : req.body.buyerId;
-    
+    const counterpartUserId =
+      req.user.role === "buyer" ? req.body.supplierId : req.body.buyerId;
+
     const counterpartAccountManager = await User.findOne({
       where: {
         managedClient: { [Op.contains]: [counterpartUserId] },
-        role: counterpartRole
+        role: counterpartRole,
       },
-      attributes: ["id", "firstName", "lastName", "email"]
+      attributes: ["id", "firstName", "lastName", "email"],
     });
 
     if (!counterpartAccountManager) {
-      return res.status(400).json({ 
-        message: `${counterpartRole} account manager not found` 
+      return res.status(400).json({
+        message: `${counterpartRole} account manager not found`,
       });
     }
 
@@ -56,9 +66,13 @@ exports.createOrder = async (req, res) => {
       ...req.body,
       createdById: req.user.id,
       savedStatus: "confirmed",
-      status: "not_matched",
-      buyerAccountManagerId: req.user.role === "buyer" ? req.user.id : counterpartAccountManager.id,
-      supplierAccountManagerId: req.user.role === "supplier" ? req.user.id : counterpartAccountManager.id
+      status: "pending_approval",
+      buyerAccountManagerId:
+        req.user.role === "buyer" ? req.user.id : counterpartAccountManager.id,
+      supplierAccountManagerId:
+        req.user.role === "supplier"
+          ? req.user.id
+          : counterpartAccountManager.id,
     };
 
     const order = await Order.create(orderData);
@@ -66,12 +80,12 @@ exports.createOrder = async (req, res) => {
     // Get all users involved (buyer, supplier)
     const [buyer, supplier] = await Promise.all([
       User.findByPk(order.buyerId, { attributes: ["id", "email"] }),
-      User.findByPk(order.supplierId, { attributes: ["id", "email"] })
+      User.findByPk(order.supplierId, { attributes: ["id", "email"] }),
     ]);
 
     // Create notifications
     const notificationPromises = [];
-    
+
     // Notification for counterpart account manager
     notificationPromises.push(
       Notification.create({
@@ -82,8 +96,8 @@ exports.createOrder = async (req, res) => {
         metadata: {
           createdBy: req.user.id,
           product: order.product,
-          quantity: order.capacity
-        }
+          quantity: order.capacity,
+        },
       })
     );
 
@@ -97,8 +111,8 @@ exports.createOrder = async (req, res) => {
           type: "order_created",
           metadata: {
             accountManagerId: req.user.id,
-            product: order.product
-          }
+            product: order.product,
+          },
         })
       );
     }
@@ -112,8 +126,8 @@ exports.createOrder = async (req, res) => {
           type: "order_created",
           metadata: {
             accountManagerId: req.user.id,
-            product: order.product
-          }
+            product: order.product,
+          },
         })
       );
     }
@@ -127,42 +141,100 @@ exports.createOrder = async (req, res) => {
         ...order.toJSON(),
         buyerAccountManager: {
           id: orderData.buyerAccountManagerId,
-          fullName: req.user.role === "buyer" 
-            ? `${accountManager.firstName} ${accountManager.lastName}`
-            : counterpartAccountManager ? 
-              `${counterpartAccountManager.firstName} ${counterpartAccountManager.lastName}`
-              : null
+          fullName:
+            req.user.role === "buyer"
+              ? `${accountManager.firstName} ${accountManager.lastName}`
+              : counterpartAccountManager
+              ? `${counterpartAccountManager.firstName} ${counterpartAccountManager.lastName}`
+              : null,
         },
         supplierAccountManager: {
           id: orderData.supplierAccountManagerId,
-          fullName: req.user.role === "supplier"
-            ? `${accountManager.firstName} ${accountManager.lastName}`
-            : counterpartAccountManager ?
-              `${counterpartAccountManager.firstName} ${counterpartAccountManager.lastName}`
-              : null
-        }
+          fullName:
+            req.user.role === "supplier"
+              ? `${accountManager.firstName} ${accountManager.lastName}`
+              : counterpartAccountManager
+              ? `${counterpartAccountManager.firstName} ${counterpartAccountManager.lastName}`
+              : null,
+        },
       },
       notifications: {
         sentTo: [
           counterpartAccountManager.email,
           buyer?.email,
-          supplier?.email
-        ].filter(Boolean)
-      }
+          supplier?.email,
+        ].filter(Boolean),
+      },
     };
 
     res.status(201).json(response);
   } catch (error) {
     console.error("Error creating order:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
-      details: "Failed to create order"
+      details: "Failed to create order",
     });
   }
 };
 
+// ================== APPROVE ORDER ================== //
+exports.approveOrder = async (req, res) => {
+  try {
+    // Find order with relationships
+    const order = await Order.findByPk(req.params.id, {
+      include: [
+        { model: User, as: "buyerAccountManager" },
+        { model: User, as: "supplierAccountManager" },
+      ],
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Check if order is in correct state for approval
+    console.log("user role: ", req.user.role);
+    if (order.createdById === req.user.id) {
+      return res.status(403).json({
+        message: "You cannot approve your own created orders",
+      });
+    }
+
+
+    // Update order status and set approver
+    await order.update({
+      status: "matched",
+      matchedById: req.user.id,
+      approvedAt: new Date(),
+    });
+
+    // Notify relevant parties
+    const creatorId =
+      order.buyerAccountManagerId === req.user.id
+        ? order.supplierAccountManagerId
+        : order.buyerAccountManagerId;
+
+    await Notification.create({
+      userId: creatorId,
+      orderId: order.id,
+      message: `Your order has been approved by ${req.user.firstName} ${req.user.lastName}`,
+      type: "order_approved",
+    });
+
+    res.json({
+      message: "Order approved successfully",
+      order: order.toJSON(),
+    });
+  } catch (error) {
+    console.error("Error approving order:", error);
+    res.status(500).json({
+      error: error.message,
+      details: "Failed to approve order",
+    });
+  }
+};
 // ================== UPDATE STATUS ORDERS  ================== //
-exports.updateOrderStatus = async (req, res) => {
+ exports.updateOrderStatus = async (req, res) => {
   try {
     // Authorization check
     if (!["buyer", "supplier"].includes(req.user.role)) {
@@ -287,7 +359,7 @@ exports.updateOrderStatus = async (req, res) => {
       suggestion: "Please check the order ID and try again"
     });
   }
-};
+}; 
 // ================== GET ORDERS (DASHBOARD) ================== //
 exports.getDashboardOrders = async (req, res) => {
   try {
@@ -299,13 +371,13 @@ exports.getDashboardOrders = async (req, res) => {
     // Enhanced filtering options
     const { status, product, startDate, endDate } = req.query;
     let whereClause = {
-      savedStatus: "confirmed" // Simplified from array to single value
+      savedStatus: "confirmed", // Simplified from array to single value
     };
 
     // Date range filter
     if (startDate && endDate) {
       whereClause.createdAt = {
-        [Op.between]: [new Date(startDate), new Date(endDate)]
+        [Op.between]: [new Date(startDate), new Date(endDate)],
       };
     }
 
@@ -317,7 +389,7 @@ exports.getDashboardOrders = async (req, res) => {
     // Product filter
     if (product) {
       whereClause.product = {
-        [Op.contains]: [product]
+        [Op.contains]: [product],
       };
     }
 
@@ -364,51 +436,52 @@ exports.getDashboardOrders = async (req, res) => {
           },
           {
             model: User,
-            as: 'matchedBy',
-            attributes: ['id', 'firstName', 'lastName', 'email'],
-            required: false
+            as: "matchedBy",
+            attributes: ["id", "firstName", "lastName", "email"],
+            required: false,
           },
           {
             model: Document,
-            as: 'documents',
-            attributes: ['id', 'status'],
-            required: false
+            as: "documents",
+            attributes: ["id", "status"],
+            required: false,
           },
           {
             model: Notification,
             as: "notifications",
             attributes: ["id", "type", "message", "createdAt"],
             where: {
-              userId: id // Only show notifications relevant to current user
+              userId: id, // Only show notifications relevant to current user
             },
-            required: false
-          }
+            required: false,
+          },
         ],
         order: [
           ["status", "ASC"],
-          ["updatedAt", "DESC"]
+          ["updatedAt", "DESC"],
         ],
         limit,
         offset,
-        subQuery: false // Better performance for pagination
-      })
+        subQuery: false, // Better performance for pagination
+      }),
     ]);
 
     const totalPages = Math.ceil(totalOrders / limit);
 
-    const formattedOrders = orders.map(order => ({
+    const formattedOrders = orders.map((order) => ({
       ...order.toJSON(),
-      matchedBy: order.matchedBy ? {
-        id: order.matchedBy.id,
-        name: `${order.matchedBy.firstName} ${order.matchedBy.lastName}`,
-        email: order.matchedBy.email
-      } : null,
+      matchedBy: order.matchedBy
+        ? {
+            id: order.matchedBy.id,
+            name: `${order.matchedBy.firstName} ${order.matchedBy.lastName}`,
+            email: order.matchedBy.email,
+          }
+        : null,
       documents: {
         id: order.documents.id,
-        status: order.documents.status
-      }
+        status: order.documents.status,
+      },
     }));
-
 
     // Enhanced response format
     res.status(200).json({
@@ -419,23 +492,22 @@ exports.getDashboardOrders = async (req, res) => {
         totalItems: totalOrders,
         totalPages,
         hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1
+        hasPreviousPage: page > 1,
       },
       filters: {
-        status: status || 'all',
-        product: product || 'any',
-        dateRange: startDate && endDate ? `${startDate} to ${endDate}` : 'all'
+        status: status || "all",
+        product: product || "any",
+        dateRange: startDate && endDate ? `${startDate} to ${endDate}` : "all",
       },
-      data: formattedOrders 
+      data: formattedOrders,
     });
-
   } catch (err) {
     console.error("Error fetching dashboard orders:", err);
     res.status(500).json({
       success: false,
       error: "Server Error",
       message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
     });
   }
 };
@@ -567,7 +639,7 @@ exports.getAllSavedOrders = async (req, res) => {
 };
 
 // ✅ Get Single Order (Accessible to all users)
- exports.getOrderById = async (req, res) => {
+exports.getOrderById = async (req, res) => {
   try {
     const order = await Order.findByPk(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
@@ -576,7 +648,7 @@ exports.getAllSavedOrders = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-}; 
+};
 
 // Search and Filter Orders
 exports.searchOrders = async (req, res) => {

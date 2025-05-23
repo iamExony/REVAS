@@ -7,6 +7,93 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
 
 /**
  * @swagger
+ * components:
+ *   schemas:
+ *     Order:
+ *       type: object
+ *       properties:
+ *         buyerId:
+ *           type: string
+ *           example: "7ed197a1-f112-4207-b777-524103090a4e"
+ *         supplierId:
+ *           type: string
+ *           example: "3d3de0c3-6aee-4a03-98a7-acf0f9172415"
+ *         buyerName:
+ *           type: string
+ *           example: "EZE  Flakes Inc."
+ *         buyerLocation:
+ *           type: string
+ *           example: "Lagos, Nigeria"
+ *         supplierLocation:
+ *           type: string
+ *           example: "Abuja, Nigeria"
+ *         product:
+ *           type: string
+ *           example:  "PET"
+ *         capacity:
+ *           type: integer
+ *           example: 3000
+ *         pricePerTonne:
+ *           type: integer
+ *           example: 400
+ *         shippingType:
+ *           type: string
+ *           example: "FOB"
+ *         paymentTerms:
+ *           type: integer
+ *           example: 40
+ *         supplierName:
+ *           type: string
+ *           example: "DANIELELOMA  Flakes Inc."
+ *         supplierPrice:
+ *           type: integer
+ *           example: 2000
+ *         shippingCost:
+ *           type: integer
+ *           example: 100
+ *         negotiatePrice:
+ *           type: boolean
+ *           example: true
+ *         priceRange:
+ *           type: integer
+ *           example: 800
+ *         savedStatus:
+ *           type: string
+ *           example: "confirmed"
+ */
+
+/**
+ * @swagger
+ * /orders/{id}/approve:
+ *   post:
+ *     summary: Approve an order (Counterpart Account Manager only)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order approved and status changed to matched
+ *       400:
+ *         description: Order not in pending_approval status
+ *       403:
+ *         description: Not authorized to approve this order
+ *       404:
+ *         description: Order not found
+ */
+router.post('/orders/:id/approve', 
+  authMiddleware, 
+  authenticateRole(['buyer', 'supplier']),
+  orderController.approveOrder
+);
+
+/**
+ * @swagger
  * /orders/{id}/status:
  *   patch:
  *     summary: Update order status (Account Managers only)
@@ -40,11 +127,11 @@ const parseArrays = require("../middleware/arrayParserMiddleware");
  *       404:
  *         description: Order not found
  */
-router.patch('/orders/:id/status', 
+ router.patch('/orders/:id/status', 
     authMiddleware, 
     authenticateRole(['buyer', 'supplier']),
     orderController.updateOrderStatus
-  );
+  ); 
   
   /**
    * @swagger
@@ -68,63 +155,6 @@ router.patch('/orders/:id/status',
    */
   router.get('/orders/dashboard',authMiddleware,
     orderController.getDashboardOrders);
-  
-/**
- * @swagger
- * components:
- *   schemas:
- *     Order:
- *       type: object
- *       properties:
- *         buyerId:
- *           type: string
- *           example: "9e1a3407-12ca-4236-bedf-e6b470961ead"
- *         supplierId:
- *           type: string
- *           example: "7a8ac7df-df38-4ed1-b4bf-798121bd1bc4"
- *         buyerName:
- *           type: string
- *           example: "DANIELELOMA Production Inc."
- *         buyerLocation:
- *           type: string
- *           example: "Abuja, Nigeria"
- *         supplierLocation:
- *           type: string
- *           example: "Lagos, Nigeria"
- *         product:
- *           type: string
- *           example:  "PET"
- *         capacity:
- *           type: integer
- *           example: 3000
- *         pricePerTonne:
- *           type: integer
- *           example: 400
- *         shippingType:
- *           type: string
- *           example: "FOB"
- *         paymentTerms:
- *           type: integer
- *           example: 40
- *         supplierName:
- *           type: string
- *           example: "JUDITHEJIA Flakes Inc."
- *         supplierPrice:
- *           type: integer
- *           example: 2000
- *         shippingCost:
- *           type: integer
- *           example: 100
- *         negotiatePrice:
- *           type: boolean
- *           example: true
- *         priceRange:
- *           type: integer
- *           example: 800
- *         savedStatus:
- *           type: string
- *           example: "confirmed"
- */
 
 /**
  * @swagger

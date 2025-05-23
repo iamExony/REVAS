@@ -197,6 +197,7 @@ const createUserAndProduct = async (req, res) => {
         password: hashedPassword,
         role: role,
         clientType: formattedClientType,
+        status: 'approved',
       },
       { transaction }
     );
