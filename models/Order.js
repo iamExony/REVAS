@@ -91,6 +91,11 @@ const Order = sequelize.define("Order", {
     type: DataTypes.UUID,
     references: { model: "Users", key: "id" },
     allowNull: true
+  },
+  createdById: {
+    type: DataTypes.UUID,
+    references: { model: "Users", key: "id" },
+    allowNull: false
   }
 });
 

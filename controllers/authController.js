@@ -2,7 +2,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const { templates, sendEmail } = require("../utils/emailService");
@@ -202,17 +201,6 @@ const login = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-// Create a transporter for sending emails
-const transporter = nodemailer.createTransport({
-  service: "gmail", // Use your email service (e.g., Gmail, Outlook)
-  host: "smtp.ethereal.email",
-  port: 587,
-  secure: false, // true for port 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER, // Your email address
-    pass: process.env.EMAIL_APP_PASSWORD /* .replace(/^"|"$/g, '')  */,
-  },
-});
 
 const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -237,20 +225,17 @@ const forgotPassword = async (req, res) => {
     await user.save();
 
     // Send the reset email
+        // Send email to user
     const resetUrl = `${process.env.FRONTEND_URL}/change-password/${resetToken}`;
-    const mailOptions = {
-      to: user.email,
-      from: process.env.EMAIL_USER,
-      subject: "Password Reset",
-      text: `You are receiving this because you (or someone else) have requested a password reset for your account.\n\n
-             Please copy this token and paste on your password recovery portal to complete the process:\n\n
-             ${code}\n\n
-             OR copy this link and paste on your browser to complete the process:\n\n
-             ${resetUrl}\n\n
-             If you did not request this, please ignore this email and your password will remain unchanged.\n`,
-    };
-
-    await transporter.sendMail(mailOptions);
+    try {
+      await sendEmail(
+        user.email,
+        templates.forgotPasswordMail(code, resetUrl).subject,
+        templates.forgotPasswordMail(code, resetUrl).text
+      );
+    } catch (emailError) {
+      console.error('Failed to send user email:', emailError);
+    }
 
     res.status(200).json({ message: "Password reset email sent" });
   } catch (error) {

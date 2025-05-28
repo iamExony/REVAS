@@ -1,6 +1,5 @@
 const { Order, Notification, User } = require("../models");
 const { Op } = require("sequelize");
-const { sendEmail } = require("../utils/emailService");
 const sequelize = require("../config/database");
 const Document = require("../models/Document");
 
@@ -193,13 +192,11 @@ exports.approveOrder = async (req, res) => {
     }
 
     // Check if order is in correct state for approval
-    console.log("user role: ", req.user.role);
-    if (order.createdById === req.user.id) {
+     if (order.createdById === req.user.id) {
       return res.status(403).json({
         message: "You cannot approve your own created orders",
       });
     }
-
 
     // Update order status and set approver
     await order.update({
@@ -234,7 +231,7 @@ exports.approveOrder = async (req, res) => {
   }
 };
 // ================== UPDATE STATUS ORDERS  ================== //
- exports.updateOrderStatus = async (req, res) => {
+exports.updateOrderStatus = async (req, res) => {
   try {
     // Authorization check
     if (!["buyer", "supplier"].includes(req.user.role)) {
@@ -246,18 +243,26 @@ exports.approveOrder = async (req, res) => {
     // Find order with all related users
     const order = await Order.findByPk(req.params.id, {
       include: [
-        { model: User, as: 'buyer', attributes: ['id'] },
-        { model: User, as: 'supplier', attributes: ['id'] },
-        { model: User, as: 'buyerAccountManager', attributes: ['id', 'firstName', 'lastName'] },
-        { model: User, as: 'supplierAccountManager', attributes: ['id', 'firstName', 'lastName'] }
-      ]
+        { model: User, as: "buyer", attributes: ["id"] },
+        { model: User, as: "supplier", attributes: ["id"] },
+        {
+          model: User,
+          as: "buyerAccountManager",
+          attributes: ["id", "firstName", "lastName"],
+        },
+        {
+          model: User,
+          as: "supplierAccountManager",
+          attributes: ["id", "firstName", "lastName"],
+        },
+      ],
     });
-    
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     // Validate status transition
     const validTransitions = {
-      not_matched: ["matched"],
+      pending_approval: ["matched"],
       matched: ["document_phase"],
       document_phase: ["processing"],
       processing: ["completed"],
@@ -269,69 +274,83 @@ exports.approveOrder = async (req, res) => {
       });
     }
 
-    if (req.body.status === 'matched') {
-      req.body.matchedById = req.user.id;
+    if (req.body.status === "matched") {
+      return res.status(400).json({
+        message: `Your order is awaiting approval`,
+      });
+    }
+    if (req.body.status === "document_phase") {
+      return res.status(400).json({
+        message: `Order documents has not been generated`,
+      });
     }
 
     const oldStatus = order.status;
-    await order.update({ 
+    await order.update({
       status: req.body.status,
-      matchedById: req.body.matchedById 
+      matchedById: req.body.matchedById,
     });
 
     // Include matchedBy details in the response
-    const matchedByUser = req.body.status === 'matched' 
-      ? await User.findByPk(req.user.id, {
-          attributes: ['id', 'firstName', 'lastName', 'email']
-        })
-      : null;
-
-    
+    const matchedByUser =
+      req.body.status === "matched"
+        ? await User.findByPk(req.user.id, {
+            attributes: ["id", "firstName", "lastName", "email"],
+          })
+        : null;
 
     // Determine who should be notified
     const notificationRecipients = [];
-    
+
     // Always notify the counterpart account manager
-    if (req.user.role === 'buyer' && order.supplierAccountManager) {
+    if (req.user.role === "buyer" && order.supplierAccountManager) {
       notificationRecipients.push({
         userId: order.supplierAccountManager.id,
-        role: 'supplierAccountManager'
+        role: "supplierAccountManager",
       });
     } else if (order.buyerAccountManager) {
       notificationRecipients.push({
         userId: order.buyerAccountManager.id,
-        role: 'buyerAccountManager'
+        role: "buyerAccountManager",
       });
     }
 
     // Also notify the buyer and supplier users
-    if (order.buyer) notificationRecipients.push({ userId: order.buyer.id, role: 'buyer' });
-    if (order.supplier) notificationRecipients.push({ userId: order.supplier.id, role: 'supplier' });
+    if (order.buyer)
+      notificationRecipients.push({ userId: order.buyer.id, role: "buyer" });
+    if (order.supplier)
+      notificationRecipients.push({
+        userId: order.supplier.id,
+        role: "supplier",
+      });
 
     // Create notifications in transaction
     const transaction = await sequelize.transaction();
     try {
       await Promise.all(
-        notificationRecipients.map(recipient => 
-          Notification.create({
-            userId: recipient.userId,
-            orderId: order.id,
-            message: `Order status changed from ${oldStatus} to ${req.body.status}`,
-            type: "status_changed",
-            metadata: {
-              oldStatus,
-              newStatus: req.body.status,
-              changedBy: req.user.id,
-              recipientRole: recipient.role
-            }
-          }, { transaction })
+        notificationRecipients.map((recipient) =>
+          Notification.create(
+            {
+              userId: recipient.userId,
+              orderId: order.id,
+              message: `Order status changed from ${oldStatus} to ${req.body.status}`,
+              type: "status_changed",
+              metadata: {
+                oldStatus,
+                newStatus: req.body.status,
+                changedBy: req.user.id,
+                recipientRole: recipient.role,
+              },
+            },
+            { transaction }
+          )
         )
       );
-      
+
       await transaction.commit();
     } catch (notificationError) {
       await transaction.rollback();
-      console.error('Failed to create notifications:', notificationError);
+      console.error("Failed to create notifications:", notificationError);
       throw notificationError;
     }
 
@@ -339,27 +358,29 @@ exports.approveOrder = async (req, res) => {
     const response = {
       message: "Order status updated successfully",
       ...order.toJSON(),
-      matchedBy: matchedByUser ? {
-        id: matchedByUser.id,
-        name: `${matchedByUser.firstName} ${matchedByUser.lastName}`,
-        email: matchedByUser.email
-      } : null,
+      matchedBy: matchedByUser
+        ? {
+            id: matchedByUser.id,
+            name: `${matchedByUser.firstName} ${matchedByUser.lastName}`,
+            email: matchedByUser.email,
+          }
+        : null,
       notifications: {
-        sentTo: notificationRecipients.map(r => r.role),
-        count: notificationRecipients.length
-      }
+        sentTo: notificationRecipients.map((r) => r.role),
+        count: notificationRecipients.length,
+      },
     };
 
     res.json(response);
   } catch (error) {
     console.error("Error updating order status:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
       details: "Failed to update order status",
-      suggestion: "Please check the order ID and try again"
+      suggestion: "Please check the order ID and try again",
     });
   }
-}; 
+};
 // ================== GET ORDERS (DASHBOARD) ================== //
 exports.getDashboardOrders = async (req, res) => {
   try {
